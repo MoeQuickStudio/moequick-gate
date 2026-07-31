@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.module.ModuleFinder;
 import java.nio.file.Path;
+import moe.div.moequickgate.controller.MainController;
 import moe.div.moequickgate.scene.MainScene;
 import org.junit.jupiter.api.Test;
 
@@ -13,6 +14,8 @@ class ProjectInitializationTest {
     @Test
     void mainFxmlIsAvailableFromTheModulePath() {
         assertNotNull(MainScene.class.getResource(MainScene.FXML_RESOURCE));
+        assertNotNull(MainController.class.getResource(MainController.PROXY_CARD_RESOURCE));
+        assertNotNull(MainScene.class.getResource(MainScene.CSS_RESOURCE));
     }
 
     @Test
@@ -22,5 +25,8 @@ class ProjectInitializationTest {
 
         assertTrue(applicationModule.isPresent());
         assertEquals("moe.div.moequickgate", applicationModule.orElseThrow().descriptor().name());
+        assertTrue(applicationModule.orElseThrow().descriptor().opens().stream()
+                .anyMatch(open -> open.source().equals("moe.div.moequickgate.controller")
+                        && open.targets().contains("javafx.fxml")));
     }
 }

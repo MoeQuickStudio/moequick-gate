@@ -1,0 +1,162 @@
+.app-root {
+    -fx-background-color: #f4f7fb;
+    -fx-font-family: "Noto Sans CJK SC", "Ubuntu", sans-serif;
+}
+
+.app-header {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #dfe6ef transparent;
+}
+
+.app-title {
+    -fx-font-size: 24px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #172033;
+}
+
+.app-subtitle,
+.section-description,
+.proxy-endpoint,
+.component-status {
+    -fx-text-fill: #667085;
+}
+
+.main-content {
+    -fx-background-color: #f4f7fb;
+}
+
+.section-panel {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 12px;
+    -fx-border-color: #e3e9f1;
+    -fx-border-radius: 12px;
+    -fx-padding: 18px;
+}
+
+.section-title {
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1d2939;
+}
+
+.section-description {
+    -fx-font-size: 12px;
+}
+
+.proxy-scroll-pane,
+.proxy-scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+
+.proxy-scroll-pane {
+    -fx-border-color: transparent;
+    -fx-padding: 2px;
+}
+
+.proxy-list {
+    -fx-padding: 2px 2px 8px 2px;
+}
+
+.proxy-card {
+    -fx-background-color: #f9fbfd;
+    -fx-background-radius: 10px;
+    -fx-border-color: #d8e1ec;
+    -fx-border-radius: 10px;
+    -fx-cursor: hand;
+}
+
+.proxy-card:hover {
+    -fx-background-color: #f3f8ff;
+    -fx-border-color: #9cc2f5;
+}
+
+.proxy-card-selected {
+    -fx-background-color: #eef6ff;
+    -fx-border-color: #3b82f6;
+    -fx-border-width: 2px;
+}
+
+.proxy-name,
+.component-name {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1d2939;
+}
+
+.selection-badge,
+.protocol-badge {
+    -fx-background-radius: 10px;
+    -fx-padding: 3px 8px;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.selection-badge {
+    -fx-background-color: #dbeafe;
+    -fx-text-fill: #1d4ed8;
+}
+
+.protocol-badge {
+    -fx-background-color: #e8eef6;
+    -fx-text-fill: #475467;
+}
+
+.component-card {
+    -fx-background-color: #f9fbfd;
+    -fx-background-radius: 10px;
+    -fx-border-color: #e0e7ef;
+    -fx-border-radius: 10px;
+    -fx-padding: 15px 16px;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button,
+.component-toggle {
+    -fx-background-radius: 7px;
+    -fx-cursor: hand;
+    -fx-padding: 7px 13px;
+}
+
+.primary-button {
+    -fx-background-color: #2563eb;
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: bold;
+}
+
+.primary-button:hover {
+    -fx-background-color: #1d4ed8;
+}
+
+.secondary-button,
+.danger-button {
+    -fx-background-color: #ffffff;
+    -fx-border-radius: 7px;
+}
+
+.secondary-button {
+    -fx-border-color: #cbd5e1;
+    -fx-text-fill: #344054;
+}
+
+.danger-button {
+    -fx-border-color: #fecaca;
+    -fx-text-fill: #b42318;
+}
+
+.component-toggle {
+    -fx-background-color: #e5e7eb;
+    -fx-text-fill: #475467;
+    -fx-min-width: 68px;
+}
+
+.component-toggle:selected,
+.component-toggle-active {
+    -fx-background-color: #16a34a;
+    -fx-text-fill: #ffffff;
+}
+
+.component-status-enabled {
+    -fx-text-fill: #15803d;
+    -fx-font-weight: bold;
+}

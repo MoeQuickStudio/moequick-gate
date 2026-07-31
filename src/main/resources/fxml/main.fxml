@@ -1,13 +1,109 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
 <?import javafx.scene.control.Label?>
-<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.ToggleButton?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.FlowPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Priority?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
 
-<StackPane xmlns="http://javafx.com/javafx/21"
-           xmlns:fx="http://javafx.com/fxml/1"
-           alignment="CENTER">
-    <children>
-        <Label text="MoeQuick Gate" />
-    </children>
-</StackPane>
+<BorderPane xmlns="http://javafx.com/javafx/21"
+            xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="moe.div.moequickgate.controller.MainController"
+            prefHeight="600.0"
+            prefWidth="900.0"
+            styleClass="app-root">
+    <top>
+        <VBox spacing="6.0" styleClass="app-header">
+            <padding>
+                <Insets bottom="18.0" left="28.0" right="28.0" top="22.0" />
+            </padding>
+            <Label text="萌快网络助手" styleClass="app-title" />
+            <Label fx:id="currentProxyLabel"
+                   text="当前代理：未选择"
+                   styleClass="app-subtitle" />
+        </VBox>
+    </top>
+    <center>
+        <VBox spacing="18.0" styleClass="main-content">
+            <padding>
+                <Insets bottom="24.0" left="28.0" right="28.0" top="22.0" />
+            </padding>
 
+            <VBox spacing="12.0" VBox.vgrow="ALWAYS" styleClass="section-panel">
+                <HBox alignment="CENTER_LEFT" spacing="12.0">
+                    <VBox spacing="3.0">
+                        <Label text="代理配置" styleClass="section-title" />
+                        <Label text="选择当前需要使用的网络环境" styleClass="section-description" />
+                    </VBox>
+                    <Region HBox.hgrow="ALWAYS" />
+                    <Button text="新增代理"
+                            onAction="#handleAddProxy"
+                            styleClass="primary-button" />
+                </HBox>
+
+                <ScrollPane fitToWidth="true"
+                            hbarPolicy="NEVER"
+                            pannable="true"
+                            VBox.vgrow="ALWAYS"
+                            styleClass="proxy-scroll-pane">
+                    <content>
+                        <FlowPane fx:id="proxyList"
+                                  hgap="12.0"
+                                  prefWrapLength="760.0"
+                                  vgap="12.0"
+                                  styleClass="proxy-list" />
+                    </content>
+                </ScrollPane>
+            </VBox>
+
+            <VBox spacing="12.0" styleClass="section-panel">
+                <VBox spacing="3.0">
+                    <Label text="组件状态" styleClass="section-title" />
+                    <Label text="Phase 2 开关仅用于界面交互演示" styleClass="section-description" />
+                </VBox>
+
+                <HBox spacing="14.0">
+                    <HBox alignment="CENTER_LEFT"
+                          spacing="12.0"
+                          HBox.hgrow="ALWAYS"
+                          styleClass="component-card">
+                        <VBox spacing="4.0">
+                            <Label text="APT" styleClass="component-name" />
+                            <Label fx:id="aptStatusLabel"
+                                   text="已关闭"
+                                   styleClass="component-status" />
+                        </VBox>
+                        <Region HBox.hgrow="ALWAYS" />
+                        <ToggleButton fx:id="aptToggle"
+                                      text="关闭"
+                                      onAction="#handleAptToggle"
+                                      styleClass="component-toggle" />
+                    </HBox>
+
+                    <HBox alignment="CENTER_LEFT"
+                          spacing="12.0"
+                          HBox.hgrow="ALWAYS"
+                          styleClass="component-card">
+                        <VBox spacing="4.0">
+                            <Label text="NPM" styleClass="component-name" />
+                            <Label fx:id="npmStatusLabel"
+                                   text="已关闭"
+                                   styleClass="component-status" />
+                        </VBox>
+                        <Region HBox.hgrow="ALWAYS" />
+                        <ToggleButton fx:id="npmToggle"
+                                      text="关闭"
+                                      onAction="#handleNpmToggle"
+                                      styleClass="component-toggle" />
+                    </HBox>
+                </HBox>
+            </VBox>
+        </VBox>
+    </center>
+</BorderPane>

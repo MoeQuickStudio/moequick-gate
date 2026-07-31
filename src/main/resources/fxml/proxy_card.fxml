@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox xmlns="http://javafx.com/javafx/21"
+      xmlns:fx="http://javafx.com/fxml/1"
+      fx:id="cardRoot"
+      fx:controller="moe.div.moequickgate.controller.ProxyCardController"
+      onMouseClicked="#handleCardClicked"
+      prefWidth="360.0"
+      spacing="12.0"
+      styleClass="proxy-card">
+    <padding>
+        <Insets bottom="16.0" left="18.0" right="18.0" top="16.0" />
+    </padding>
+
+    <HBox alignment="CENTER_LEFT" spacing="8.0">
+        <Label fx:id="nameLabel" text="代理名称" styleClass="proxy-name" />
+        <Region HBox.hgrow="ALWAYS" />
+        <Label fx:id="selectionLabel"
+               managed="false"
+               text="当前"
+               visible="false"
+               styleClass="selection-badge" />
+    </HBox>
+
+    <HBox alignment="CENTER_LEFT" spacing="8.0">
+        <Label fx:id="protocolLabel" text="HTTP" styleClass="protocol-badge" />
+        <Label fx:id="endpointLabel" text="127.0.0.1:7890" styleClass="proxy-endpoint" />
+    </HBox>
+
+    <HBox alignment="CENTER_RIGHT" spacing="8.0">
+        <Button text="编辑" onAction="#handleEdit" styleClass="secondary-button" />
+        <Button text="删除" onAction="#handleDelete" styleClass="danger-button" />
+    </HBox>
+</VBox>
