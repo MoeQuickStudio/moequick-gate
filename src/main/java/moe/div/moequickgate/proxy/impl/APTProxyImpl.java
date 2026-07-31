@@ -16,9 +16,14 @@ import java.util.regex.Pattern;
 import moe.div.moequickgate.bean.MoeProxy;
 import moe.div.moequickgate.bean.ProxyComponent;
 import moe.div.moequickgate.proxy.IProxy;
+import moe.div.moequickgate.proxy.ProxyFailureType;
 import moe.div.moequickgate.proxy.ProxyOperationException;
 import moe.div.moequickgate.proxy.ProxyRuntimeStatus;
 import moe.div.moequickgate.proxy.ProxyUriFactory;
+import moe.div.moequickgate.utils.CommandExecutionException;
+import moe.div.moequickgate.utils.CommandExecutor;
+import moe.div.moequickgate.utils.CommandResult;
+import moe.div.moequickgate.utils.CommandUtil;
 
 /**
  * 通过 APT 配置片段控制 APT 代理。
@@ -40,11 +45,15 @@ public final class APTProxyImpl implements IProxy {
     private final Path aptConfigExecutable;
     private final Path pkexecExecutable;
     private final Path installExecutable;
-    private final ProcessRunner processRunner;
+    private final CommandExecutor commandExecutor;
 
     public APTProxyImpl() {
+        this(new CommandUtil());
+    }
+
+    public APTProxyImpl(CommandExecutor commandExecutor) {
         this(DEFAULT_CONFIG_PATH, DEFAULT_APT_CONFIG, DEFAULT_PKEXEC, DEFAULT_INSTALL,
-                new DefaultProcessRunner());
+                commandExecutor);
     }
 
     APTProxyImpl(
@@ -52,12 +61,12 @@ public final class APTProxyImpl implements IProxy {
             Path aptConfigExecutable,
             Path pkexecExecutable,
             Path installExecutable,
-            ProcessRunner processRunner) {
+            CommandExecutor commandExecutor) {
         this.configPath = configPath;
         this.aptConfigExecutable = aptConfigExecutable;
         this.pkexecExecutable = pkexecExecutable;
         this.installExecutable = installExecutable;
-        this.processRunner = processRunner;
+        this.commandExecutor = commandExecutor;
     }
 
     @Override
@@ -70,7 +79,7 @@ public final class APTProxyImpl implements IProxy {
         if (!Files.isExecutable(aptConfigExecutable)) {
             return ProxyRuntimeStatus.unavailable("未找到 apt-config：" + aptConfigExecutable);
         }
-        ProcessResult result = run(
+        CommandResult result = execute(
                 List.of(aptConfigExecutable.toString(), "dump"),
                 CHECK_TIMEOUT,
                 "检测 APT 代理失败",
@@ -78,7 +87,7 @@ public final class APTProxyImpl implements IProxy {
         requireSuccess(result, "检测 APT 代理失败", "运行 apt-config dump 检查配置语法。");
 
         Map<String, String> routes = new LinkedHashMap<>();
-        Matcher matcher = PROXY_LINE.matcher(result.output());
+        Matcher matcher = PROXY_LINE.matcher(result.stdout());
         while (matcher.find()) {
             String value = normalize(matcher.group(2));
             if (value != null) {
@@ -94,8 +103,12 @@ public final class APTProxyImpl implements IProxy {
         try {
             uri = ProxyUriFactory.create(proxy);
         } catch (IllegalArgumentException exception) {
-            throw failure("启用 APT 代理失败：" + exception.getMessage(),
-                    "修正代理地址或选择 HTTP/HTTPS 协议后重试。", exception);
+            throw failure(
+                    ProxyFailureType.INVALID_CONFIGURATION,
+                    "启用 APT 代理失败：" + exception.getMessage(),
+                    "修正代理地址或选择 HTTP/HTTPS 协议后重试。",
+                    "",
+                    exception);
         }
         installConfiguration(configuration(uri));
     }
@@ -107,12 +120,20 @@ public final class APTProxyImpl implements IProxy {
 
     private void installConfiguration(String content) {
         if (!Files.isExecutable(pkexecExecutable)) {
-            throw failure("未找到 pkexec：" + pkexecExecutable,
-                    "安装 policykit-1 并确认桌面授权代理正在运行。", null);
+            throw failure(
+                    ProxyFailureType.TOOL_MISSING,
+                    "未找到 pkexec：" + pkexecExecutable,
+                    "安装 policykit-1 并确认桌面授权代理正在运行。",
+                    "",
+                    null);
         }
         if (!Files.isExecutable(installExecutable)) {
-            throw failure("未找到 install：" + installExecutable,
-                    "安装 coreutils 后重试。", null);
+            throw failure(
+                    ProxyFailureType.TOOL_MISSING,
+                    "未找到 install：" + installExecutable,
+                    "安装 coreutils 后重试。",
+                    "",
+                    null);
         }
 
         Path temporaryFile = null;
@@ -120,7 +141,7 @@ public final class APTProxyImpl implements IProxy {
             temporaryFile = Files.createTempFile("moequick-gate-apt-", ".conf");
             Files.writeString(temporaryFile, content, StandardCharsets.UTF_8);
             setOwnerOnlyPermissions(temporaryFile);
-            ProcessResult result = run(
+            CommandResult result = execute(
                     List.of(
                             pkexecExecutable.toString(),
                             installExecutable.toString(),
@@ -133,16 +154,30 @@ public final class APTProxyImpl implements IProxy {
                     "写入 APT 代理配置失败",
                     "重新授权并确认 /etc/apt/apt.conf.d 可写。");
             if (result.exitCode() == 126) {
-                throw failure("APT 授权已取消。", "重新操作并在授权窗口中确认。", null);
+                throw failure(
+                        ProxyFailureType.AUTH_CANCELLED,
+                        "APT 授权已取消。",
+                        "重新操作并在授权窗口中确认。",
+                        commandDetail(result),
+                        null);
             }
             if (result.exitCode() == 127) {
-                throw failure("APT 授权失败。", "确认当前用户允许通过 PolicyKit 修改 APT 配置。", null);
+                throw failure(
+                        ProxyFailureType.PERMISSION_DENIED,
+                        "APT 授权失败。",
+                        "确认当前用户允许通过 PolicyKit 修改 APT 配置。",
+                        commandDetail(result),
+                        null);
             }
             requireSuccess(result, "写入 APT 代理配置失败",
                     "检查 PolicyKit 授权和 /etc/apt/apt.conf.d 目录权限。");
         } catch (IOException exception) {
-            throw failure("准备 APT 代理配置失败：" + exception.getMessage(),
-                    "检查临时目录权限和磁盘空间。", exception);
+            throw failure(
+                    ProxyFailureType.IO_FAILURE,
+                    "准备 APT 代理配置失败：" + exception.getMessage(),
+                    "检查临时目录权限和磁盘空间。",
+                    "",
+                    exception);
         } finally {
             if (temporaryFile != null) {
                 try {
@@ -154,34 +189,70 @@ public final class APTProxyImpl implements IProxy {
         }
     }
 
-    private ProcessResult run(
+    private CommandResult execute(
             List<String> command, Duration timeout, String action, String suggestion) {
         try {
-            return processRunner.run(command, timeout);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw failure(action + "：操作被中断。", suggestion, exception);
-        } catch (IOException exception) {
-            throw failure(action + "：" + exception.getMessage(), suggestion, exception);
+            return commandExecutor.execute(command, timeout);
+        } catch (CommandExecutionException exception) {
+            ProxyFailureType type = switch (exception.getFailureType()) {
+                case TIMEOUT -> ProxyFailureType.TIMEOUT;
+                case INTERRUPTED -> ProxyFailureType.INTERRUPTED;
+                case START_FAILED -> ProxyFailureType.PROCESS_FAILED;
+                case OUTPUT_READ_FAILED -> ProxyFailureType.IO_FAILURE;
+            };
+            throw failure(
+                    type,
+                    action + "：" + exception.getMessage(),
+                    suggestion,
+                    streamDetail(exception.getStdout(), exception.getStderr()),
+                    exception);
         }
     }
 
     private void requireSuccess(
-            ProcessResult result, String action, String suggestion) {
-        if (result.timedOut()) {
-            throw failure(action + "：操作超时。", suggestion, null);
-        }
+            CommandResult result, String action, String suggestion) {
         if (result.exitCode() != 0) {
-            String output = result.output().strip();
-            throw failure(action + "（退出码 " + result.exitCode() + "）"
-                    + (output.isEmpty() ? "" : "：" + output), suggestion, null);
+            throw failure(
+                    ProxyFailureType.PROCESS_FAILED,
+                    action + "（退出码 " + result.exitCode() + "）",
+                    suggestion,
+                    commandDetail(result),
+                    null);
         }
     }
 
-    private ProxyOperationException failure(String message, String suggestion, Throwable cause) {
-        return cause == null
-                ? new ProxyOperationException(getComponent(), message, suggestion)
-                : new ProxyOperationException(getComponent(), message, suggestion, cause);
+    private ProxyOperationException failure(
+            ProxyFailureType type,
+            String message,
+            String suggestion,
+            String technicalDetail,
+            Throwable cause) {
+        return new ProxyOperationException(
+                getComponent(), type, message, suggestion, technicalDetail, cause);
+    }
+
+    private static String commandDetail(CommandResult result) {
+        return "退出码：" + result.exitCode() + "\n"
+                + streamDetail(result.stdout(), result.stderr());
+    }
+
+    private static String streamDetail(String stdout, String stderr) {
+        StringBuilder detail = new StringBuilder();
+        if (stderr != null && !stderr.isBlank()) {
+            detail.append("stderr:\n").append(limit(stderr));
+        }
+        if (stdout != null && !stdout.isBlank()) {
+            if (!detail.isEmpty()) {
+                detail.append('\n');
+            }
+            detail.append("stdout:\n").append(limit(stdout));
+        }
+        return detail.toString();
+    }
+
+    private static String limit(String value) {
+        String normalized = value.strip();
+        return normalized.length() <= 4096 ? normalized : normalized.substring(0, 4096) + "…";
     }
 
     private static String configuration(String value) {

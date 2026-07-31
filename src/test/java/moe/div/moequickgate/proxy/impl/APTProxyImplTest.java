@@ -14,6 +14,10 @@ import java.util.List;
 import moe.div.moequickgate.bean.MoeProxy;
 import moe.div.moequickgate.bean.ProxyProtocol;
 import moe.div.moequickgate.proxy.ProxyOperationException;
+import moe.div.moequickgate.proxy.ProxyFailureType;
+import moe.div.moequickgate.utils.CommandExecutionException;
+import moe.div.moequickgate.utils.CommandExecutor;
+import moe.div.moequickgate.utils.CommandResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,7 +30,7 @@ class APTProxyImplTest {
     private Path aptConfig;
     private Path pkexec;
     private Path install;
-    private FakeRunner runner;
+    private FakeExecutor runner;
     private APTProxyImpl service;
 
     @BeforeEach
@@ -35,7 +39,7 @@ class APTProxyImplTest {
         aptConfig = executable("apt-config");
         pkexec = executable("pkexec");
         install = executable("install");
-        runner = new FakeRunner(aptConfig, pkexec, target);
+        runner = new FakeExecutor(aptConfig, pkexec, target);
         service = new APTProxyImpl(target, aptConfig, pkexec, install, runner);
     }
 
@@ -75,10 +79,19 @@ class APTProxyImplTest {
         ProxyOperationException cancelled = assertThrows(
                 ProxyOperationException.class, service::disable);
         assertTrue(cancelled.getMessage().contains("授权已取消"));
+        assertEquals(ProxyFailureType.AUTH_CANCELLED, cancelled.getFailureType());
+
+        runner.installExitCode = 127;
+        ProxyOperationException denied = assertThrows(
+                ProxyOperationException.class, service::disable);
+        assertEquals(ProxyFailureType.PERMISSION_DENIED, denied.getFailureType());
 
         runner.installExitCode = 0;
-        assertThrows(ProxyOperationException.class, () -> service.enable(
-                new MoeProxy(1, "Unsafe", "host;Injected", 7890, ProxyProtocol.HTTP)));
+        ProxyOperationException invalid = assertThrows(
+                ProxyOperationException.class,
+                () -> service.enable(new MoeProxy(
+                        1, "Unsafe", "host;Injected", 7890, ProxyProtocol.HTTP)));
+        assertEquals(ProxyFailureType.INVALID_CONFIGURATION, invalid.getFailureType());
     }
 
     @Test
@@ -94,7 +107,7 @@ class APTProxyImplTest {
 
         ProxyOperationException failure = assertThrows(ProxyOperationException.class, service::check);
 
-        assertTrue(failure.getMessage().contains("超时"));
+        assertEquals(ProxyFailureType.TIMEOUT, failure.getFailureType());
     }
 
     private Path executable(String name) throws IOException {
@@ -103,7 +116,7 @@ class APTProxyImplTest {
         return path;
     }
 
-    private static final class FakeRunner implements ProcessRunner {
+    private static final class FakeExecutor implements CommandExecutor {
         private final Path aptConfig;
         private final Path pkexec;
         private final Path target;
@@ -112,26 +125,40 @@ class APTProxyImplTest {
         private boolean aptConfigTimedOut;
         private int installExitCode;
 
-        private FakeRunner(Path aptConfig, Path pkexec, Path target) {
+        private FakeExecutor(Path aptConfig, Path pkexec, Path target) {
             this.aptConfig = aptConfig;
             this.pkexec = pkexec;
             this.target = target;
         }
 
         @Override
-        public ProcessResult run(List<String> command, Duration timeout) throws IOException {
+        public CommandResult execute(List<String> command, Duration timeout) {
             commands.add(List.copyOf(command));
             if (command.get(0).equals(aptConfig.toString())) {
                 if (aptConfigTimedOut) {
-                    return new ProcessResult(-1, "", true);
+                    throw new CommandExecutionException(
+                            CommandExecutionException.FailureType.TIMEOUT,
+                            "simulated timeout",
+                            "",
+                            "",
+                            null);
                 }
-                return new ProcessResult(0, aptConfigOutput, false);
+                return result(0, aptConfigOutput, "");
             }
             if (command.get(0).equals(pkexec.toString()) && installExitCode == 0) {
-                Files.copy(Path.of(command.get(command.size() - 2)), target,
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                try {
+                    Files.copy(Path.of(command.get(command.size() - 2)), target,
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException exception) {
+                    throw new IllegalStateException(exception);
+                }
             }
-            return new ProcessResult(installExitCode, "authorization result", false);
+            return result(installExitCode, "", "authorization result");
+        }
+
+        private static CommandResult result(int exitCode, String stdout, String stderr) {
+            return new CommandResult(
+                    exitCode, stdout, stderr, Duration.ofMillis(1), false, false);
         }
     }
 }

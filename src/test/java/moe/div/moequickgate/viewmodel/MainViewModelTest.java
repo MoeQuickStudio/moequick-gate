@@ -12,7 +12,10 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import moe.div.moequickgate.bean.MoeProxy;
+import moe.div.moequickgate.bean.OperationLogEntry;
 import moe.div.moequickgate.bean.ProxyComponent;
 import moe.div.moequickgate.bean.ProxyProtocol;
 import moe.div.moequickgate.proxy.IProxy;
@@ -20,11 +23,18 @@ import moe.div.moequickgate.proxy.ProxyRuntimeStatus;
 import moe.div.moequickgate.proxy.ProxyUriFactory;
 import moe.div.moequickgate.repository.InMemoryProxyRepository;
 import moe.div.moequickgate.repository.ProxyRepository;
+import moe.div.moequickgate.repository.LogRepository;
+import moe.div.moequickgate.repository.LogRepositoryContext;
+import moe.div.moequickgate.repository.TextLogRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class MainViewModelTest {
+    @TempDir
+    Path temporaryDirectory;
+
     private ScheduledExecutorService worker;
     private ProxyListViewModel proxyList;
     private FakeProxy apt;
@@ -40,7 +50,14 @@ class MainViewModelTest {
         apt = new FakeProxy(ProxyComponent.APT);
         npm = new FakeProxy(ProxyComponent.NPM);
         worker = Executors.newSingleThreadScheduledExecutor();
-        viewModel = new MainViewModel(proxyList, List.of(apt, npm), worker, Runnable::run);
+        Path logPath = temporaryDirectory.resolve("operations.log");
+        viewModel = new MainViewModel(
+                proxyList,
+                List.of(apt, npm),
+                worker,
+                Runnable::run,
+                new LogRepositoryContext(
+                        new TextLogRepository(logPath), true, "", logPath));
     }
 
     @AfterEach
@@ -62,6 +79,82 @@ class MainViewModelTest {
         String expected = ProxyUriFactory.create(proxyList.getSelectedProxy());
         assertEquals(expected, apt.currentUri);
         assertEquals(expected, npm.currentUri);
+    }
+
+    @Test
+    void logsComponentMutationsButNotStatusRefreshes() throws Exception {
+        MoeProxy old = proxyList.getSelectedProxy().copy();
+        apt.enable(old);
+        npm.enable(old);
+        refreshStatuses();
+        Path logPath = temporaryDirectory.resolve("operations.log");
+        assertEquals(0, Files.size(logPath));
+
+        viewModel.selectProxy(proxyList.getProxies().get(1).getId()).join();
+        refreshStatuses();
+
+        List<String> lines = Files.readAllLines(logPath);
+        assertEquals(2, lines.size());
+        assertTrue(lines.stream().allMatch(line -> line.contains("trigger=SELECT")));
+        assertTrue(lines.stream().allMatch(line -> line.contains("action=ENABLE")));
+    }
+
+    @Test
+    void logFailureDoesNotChangeSuccessfulComponentOperation() {
+        viewModel.close();
+        Path logPath = temporaryDirectory.resolve("failed.log");
+        LogRepository failingLog = new LogRepository() {
+            @Override
+            public void append(moe.div.moequickgate.bean.OperationLogEntry entry) {
+                throw new IllegalStateException("simulated log failure");
+            }
+
+            @Override
+            public Path getLogPath() {
+                return logPath;
+            }
+        };
+        worker = Executors.newSingleThreadScheduledExecutor();
+        viewModel = new MainViewModel(
+                proxyList,
+                List.of(apt, npm),
+                worker,
+                Runnable::run,
+                new LogRepositoryContext(failingLog, true, "", logPath));
+
+        viewModel.setComponentEnabled(ProxyComponent.APT, true).join();
+
+        assertEquals(ProxyUriFactory.create(proxyList.getSelectedProxy()), apt.currentUri);
+        assertTrue(viewModel.getLogWarning().contains("simulated log failure"));
+        assertFalse(viewModel.getLogWarning().isBlank());
+    }
+
+    @Test
+    void exposesDatabaseAndLogWarningsIndependently() {
+        viewModel.close();
+        proxyList = new ProxyListViewModel(new InMemoryProxyRepository(), false, "数据库不可用");
+        Path logPath = temporaryDirectory.resolve("unavailable.log");
+        LogRepository unavailableLog = new LogRepository() {
+            @Override
+            public void append(OperationLogEntry entry) {
+            }
+
+            @Override
+            public Path getLogPath() {
+                return logPath;
+            }
+        };
+        worker = Executors.newSingleThreadScheduledExecutor();
+        viewModel = new MainViewModel(
+                proxyList,
+                List.of(apt, npm),
+                worker,
+                Runnable::run,
+                new LogRepositoryContext(
+                        unavailableLog, false, "操作日志不可用", logPath));
+
+        assertEquals("数据库不可用", proxyList.getPersistenceWarning());
+        assertEquals("操作日志不可用", viewModel.getLogWarning());
     }
 
     @Test

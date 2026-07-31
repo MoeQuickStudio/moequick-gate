@@ -20,6 +20,7 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
 import javafx.scene.control.ToggleButton;
+import javafx.scene.control.TextArea;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -94,11 +95,13 @@ public final class MainController {
                 });
         mainViewModel.operationInProgressProperty().addListener(
                 (observable, previous, current) -> refreshComponentControls());
+        mainViewModel.logWarningProperty().addListener(
+                (observable, previous, current) -> showWarnings());
 
         bindComponent(ProxyComponent.APT, aptToggle, aptStatusLabel, aptDetailLabel);
         bindComponent(ProxyComponent.NPM, npmToggle, npmStatusLabel, npmDetailLabel);
         bindWindowLifecycle();
-        showPersistenceState();
+        showWarnings();
         refreshProxyCards();
         refreshComponentControls();
         mainViewModel.start();
@@ -306,11 +309,21 @@ public final class MainController {
         }
     }
 
-    private void showPersistenceState() {
-        boolean showWarning = !proxyViewModel.isPersistent();
+    private void showWarnings() {
+        StringBuilder warnings = new StringBuilder();
+        if (!proxyViewModel.isPersistent() && !proxyViewModel.getPersistenceWarning().isBlank()) {
+            warnings.append(proxyViewModel.getPersistenceWarning());
+        }
+        if (!mainViewModel.getLogWarning().isBlank()) {
+            if (!warnings.isEmpty()) {
+                warnings.append('\n');
+            }
+            warnings.append(mainViewModel.getLogWarning());
+        }
+        boolean showWarning = !warnings.isEmpty();
         persistenceWarningBanner.setManaged(showWarning);
         persistenceWarningBanner.setVisible(showWarning);
-        persistenceWarningLabel.setText(proxyViewModel.getPersistenceWarning());
+        persistenceWarningLabel.setText(warnings.toString());
     }
 
     private void bindWindowLifecycle() {
@@ -344,6 +357,16 @@ public final class MainController {
         alert.setHeaderText(action);
         alert.setContentText("原因：" + displayMessage(throwable)
                 + "\n建议：" + suggestion(throwable));
+        String technicalDetail = technicalDetail(throwable);
+        if (!technicalDetail.isBlank()) {
+            TextArea details = new TextArea(technicalDetail);
+            details.setEditable(false);
+            details.setWrapText(true);
+            details.setMaxWidth(Double.MAX_VALUE);
+            details.setMaxHeight(Double.MAX_VALUE);
+            alert.getDialogPane().setExpandableContent(details);
+            alert.getDialogPane().setExpanded(false);
+        }
         if (proxyList.getScene() != null) {
             alert.initOwner(proxyList.getScene().getWindow());
         }
@@ -385,6 +408,26 @@ public final class MainController {
             current = current.getCause();
         }
         return "检查数据库目录、组件配置和文件权限后重试。";
+    }
+
+    private static String technicalDetail(Throwable throwable) {
+        Throwable current = unwrap(throwable);
+        StringBuilder detail = new StringBuilder();
+        while (current != null) {
+            if (current instanceof ProxyOperationException proxyFailure) {
+                detail.append("错误类型：")
+                        .append(proxyFailure.getFailureType())
+                        .append('\n');
+                if (!proxyFailure.getTechnicalDetail().isBlank()) {
+                    detail.append(proxyFailure.getTechnicalDetail()).append('\n');
+                }
+            }
+            current = current.getCause();
+        }
+        String normalized = detail.toString().strip();
+        return normalized.length() <= 4096
+                ? normalized
+                : normalized.substring(0, 4096) + "…";
     }
 
     private static void setStyleClass(Node node, String styleClass, boolean enabled) {

@@ -1,6 +1,5 @@
 package moe.div.moequickgate.proxy.impl;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -10,9 +9,14 @@ import java.util.Map;
 import moe.div.moequickgate.bean.MoeProxy;
 import moe.div.moequickgate.bean.ProxyComponent;
 import moe.div.moequickgate.proxy.IProxy;
+import moe.div.moequickgate.proxy.ProxyFailureType;
 import moe.div.moequickgate.proxy.ProxyOperationException;
 import moe.div.moequickgate.proxy.ProxyRuntimeStatus;
 import moe.div.moequickgate.proxy.ProxyUriFactory;
+import moe.div.moequickgate.utils.CommandExecutionException;
+import moe.div.moequickgate.utils.CommandExecutor;
+import moe.div.moequickgate.utils.CommandResult;
+import moe.div.moequickgate.utils.CommandUtil;
 
 /**
  * 使用 npm 官方用户级配置命令控制 NPM 代理。
@@ -22,17 +26,21 @@ public final class NPMProxyImpl implements IProxy {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(10);
 
     private final Path npmExecutable;
-    private final ProcessRunner processRunner;
+    private final CommandExecutor commandExecutor;
     private final Map<String, String> environment;
 
     public NPMProxyImpl() {
-        this(findNpmExecutable(System.getenv()), new DefaultProcessRunner(), System.getenv());
+        this(new CommandUtil());
+    }
+
+    public NPMProxyImpl(CommandExecutor commandExecutor) {
+        this(findNpmExecutable(System.getenv()), commandExecutor, System.getenv());
     }
 
     NPMProxyImpl(
-            Path npmExecutable, ProcessRunner processRunner, Map<String, String> environment) {
+            Path npmExecutable, CommandExecutor commandExecutor, Map<String, String> environment) {
         this.npmExecutable = npmExecutable;
-        this.processRunner = processRunner;
+        this.commandExecutor = commandExecutor;
         this.environment = Map.copyOf(environment);
     }
 
@@ -71,8 +79,12 @@ public final class NPMProxyImpl implements IProxy {
         try {
             uri = ProxyUriFactory.create(proxy);
         } catch (IllegalArgumentException exception) {
-            throw failure("启用 NPM 代理失败：" + exception.getMessage(),
-                    "修正代理地址或选择 HTTP/HTTPS 协议后重试。", exception);
+            throw failure(
+                    ProxyFailureType.INVALID_CONFIGURATION,
+                    "启用 NPM 代理失败：" + exception.getMessage(),
+                    "修正代理地址或选择 HTTP/HTTPS 协议后重试。",
+                    "",
+                    exception);
         }
         replaceBoth(uri, uri);
     }
@@ -105,10 +117,10 @@ public final class NPMProxyImpl implements IProxy {
     }
 
     private String getConfig(String key) {
-        ProcessResult result = run(List.of(
+        CommandResult result = execute(List.of(
                 npmExecutable.toString(), "config", "get", key, "--location=user"));
         requireSuccess(result, "读取 NPM " + key + " 配置失败");
-        String value = result.output().lines()
+        String value = result.stdout().lines()
                 .map(String::strip)
                 .filter(line -> !line.isEmpty())
                 .reduce((previous, current) -> current)
@@ -118,38 +130,51 @@ public final class NPMProxyImpl implements IProxy {
 
     private void setConfig(String key, String value) {
         String storedValue = value == null ? "null" : value;
-        ProcessResult result = run(List.of(
+        CommandResult result = execute(List.of(
                 npmExecutable.toString(), "config", "set", key, storedValue, "--location=user"));
         requireSuccess(result, "写入 NPM " + key + " 配置失败");
     }
 
-    private ProcessResult run(List<String> command) {
+    private CommandResult execute(List<String> command) {
         try {
-            return processRunner.run(command, COMMAND_TIMEOUT);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw failure("NPM 操作被中断。", "重新执行操作。", exception);
-        } catch (IOException exception) {
-            throw failure("无法启动 npm：" + exception.getMessage(),
-                    "安装 npm 并确认可执行文件位于 PATH。", exception);
+            return commandExecutor.execute(command, COMMAND_TIMEOUT);
+        } catch (CommandExecutionException exception) {
+            ProxyFailureType type = switch (exception.getFailureType()) {
+                case TIMEOUT -> ProxyFailureType.TIMEOUT;
+                case INTERRUPTED -> ProxyFailureType.INTERRUPTED;
+                case START_FAILED -> ProxyFailureType.PROCESS_FAILED;
+                case OUTPUT_READ_FAILED -> ProxyFailureType.IO_FAILURE;
+            };
+            throw failure(
+                    type,
+                    "NPM 命令执行失败：" + exception.getMessage(),
+                    type == ProxyFailureType.TIMEOUT
+                            ? "检查 npm 配置文件和系统负载后重试。"
+                            : "安装 npm 并确认用户级配置可访问。",
+                    streamDetail(exception.getStdout(), exception.getStderr()),
+                    exception);
         }
     }
 
-    private void requireSuccess(ProcessResult result, String action) {
-        if (result.timedOut()) {
-            throw failure(action + "：操作超时。", "检查 npm 配置文件和系统负载后重试。", null);
-        }
+    private void requireSuccess(CommandResult result, String action) {
         if (result.exitCode() != 0) {
-            String output = result.output().strip();
-            throw failure(action + "（退出码 " + result.exitCode() + "）"
-                    + (output.isEmpty() ? "" : "：" + output),
-                    "检查用户级 .npmrc 权限和配置语法。", null);
+            throw failure(
+                    ProxyFailureType.PROCESS_FAILED,
+                    action + "（退出码 " + result.exitCode() + "）",
+                    "检查用户级 .npmrc 权限和配置语法。",
+                    commandDetail(result),
+                    null);
         }
     }
 
     private void requireAvailable() {
         if (npmExecutable == null || !Files.isExecutable(npmExecutable)) {
-            throw failure("未找到 npm 可执行文件。", "安装 npm 并重新启动应用。", null);
+            throw failure(
+                    ProxyFailureType.TOOL_MISSING,
+                    "未找到 npm 可执行文件。",
+                    "安装 npm 并重新启动应用。",
+                    "",
+                    null);
         }
     }
 
@@ -163,10 +188,38 @@ public final class NPMProxyImpl implements IProxy {
         return null;
     }
 
-    private ProxyOperationException failure(String message, String suggestion, Throwable cause) {
-        return cause == null
-                ? new ProxyOperationException(getComponent(), message, suggestion)
-                : new ProxyOperationException(getComponent(), message, suggestion, cause);
+    private ProxyOperationException failure(
+            ProxyFailureType type,
+            String message,
+            String suggestion,
+            String technicalDetail,
+            Throwable cause) {
+        return new ProxyOperationException(
+                getComponent(), type, message, suggestion, technicalDetail, cause);
+    }
+
+    private static String commandDetail(CommandResult result) {
+        return "退出码：" + result.exitCode() + "\n"
+                + streamDetail(result.stdout(), result.stderr());
+    }
+
+    private static String streamDetail(String stdout, String stderr) {
+        StringBuilder detail = new StringBuilder();
+        if (stderr != null && !stderr.isBlank()) {
+            detail.append("stderr:\n").append(limit(stderr));
+        }
+        if (stdout != null && !stdout.isBlank()) {
+            if (!detail.isEmpty()) {
+                detail.append('\n');
+            }
+            detail.append("stdout:\n").append(limit(stdout));
+        }
+        return detail.toString();
+    }
+
+    private static String limit(String value) {
+        String normalized = value.strip();
+        return normalized.length() <= 4096 ? normalized : normalized.substring(0, 4096) + "…";
     }
 
     private static Path findNpmExecutable(Map<String, String> environment) {

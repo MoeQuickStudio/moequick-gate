@@ -2,7 +2,7 @@
 
 MoeQuick Gate（萌快网络助手）是一款面向 Linux 开发者的网络代理配置助手。
 
-当前开发进度：Phase 4 组件代理实现。应用已支持代理配置持久化，以及 APT/NPM 代理的实时检测、开启、关闭和当前代理切换联动。
+当前开发进度：Phase 5 系统集成。应用已支持代理配置持久化、APT/NPM 代理控制、统一命令执行、结构化错误提示和文本操作日志。
 
 组件控制支持 HTTP、HTTPS 代理；SOCKS5 配置可以保存，但暂不能应用到 APT/NPM。
 
@@ -47,10 +47,14 @@ $XDG_DATA_HOME/moequick-gate/moequick-gate.db
 
 首次建库会创建并选中一条 Clash 本机监听示例。数据库无法使用时，应用会显示警告并降级到不会持久化的内存模式。
 
-开发时可使用临时目录，避免修改真实用户数据：
+开发时可使用临时目录，避免修改真实用户数据和状态文件：
 
 ```bash
-XDG_DATA_HOME=/tmp/moequick-gate-dev ./gradlew run
+mkdir -p /tmp/moequick-gate-dev/data /tmp/moequick-gate-dev/state
+XDG_DATA_HOME=/tmp/moequick-gate-dev/data \
+XDG_STATE_HOME=/tmp/moequick-gate-dev/state \
+NPM_CONFIG_USERCONFIG=/tmp/moequick-gate-dev/npmrc \
+./gradlew run
 ```
 
 ## 组件代理控制
@@ -75,6 +79,33 @@ npm config get https-proxy --location=user
 
 切换当前代理时，已经开启的组件会先应用新配置，成功后再保存选择。编辑当前代理采用同样规则；删除当前代理前会先关闭已开启组件。任一步失败时，应用会尽力恢复原代理并显示原因与处理建议。
 
+所有系统命令均以参数列表直接执行，不经过 Shell。普通命令最多等待 10 秒，APT 授权最多等待 120 秒；超时或中断会终止命令进程及其子进程。命令输出会分离读取，每路最多保留 256KB。
+
+## 操作日志
+
+开启、关闭、选择或编辑后的自动重应用以及事务回滚会写入 UTF-8 单行日志。日志不包含完整命令、原始命令输出、环境变量，也不记录五秒周期检测和纯代理 CRUD。
+
+默认日志路径：
+
+```text
+$XDG_STATE_HOME/moequick-gate/operations.log
+```
+
+未设置有效的绝对 `XDG_STATE_HOME` 时，使用：
+
+```text
+~/.local/state/moequick-gate/operations.log
+```
+
+日志最多占用 200KB，超限时删除最旧的完整记录。新建目录和文件分别使用 `0700`、`0600` 权限；日志不可写时，应用会持续显示路径和原因，但已经成功的代理操作不会因此回滚。
+
+诊断命令：
+
+```bash
+tail -n 50 "${XDG_STATE_HOME:-$HOME/.local/state}/moequick-gate/operations.log"
+stat -c '%a %s %n' "${XDG_STATE_HOME:-$HOME/.local/state}/moequick-gate/operations.log"
+```
+
 ## 运行时镜像
 
 生成包含 Java 和 JavaFX Runtime 的裁剪镜像：
@@ -98,5 +129,6 @@ dpkg-deb --contents build/jpackage/moequick-gate_0.1.0_amd64.deb
 
 - 不进行代理网络连通性测试。
 - 不支持使用 SOCKS5 控制 APT/NPM。
-- 不包含操作日志和通用命令执行框架；这些内容属于 Phase 5。
+- 不提供日志查看或清空 UI；请使用系统文本工具诊断。
 - 不支持 Git、Pip、Docker 或其他组件。
+- 不包含自定义 PolicyKit 规则，也不执行 `apt update`。

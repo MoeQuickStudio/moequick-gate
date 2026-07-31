@@ -13,14 +13,24 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.nio.file.Path;
+import java.time.OffsetDateTime;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyBooleanProperty;
 import javafx.beans.property.ReadOnlyBooleanWrapper;
+import javafx.beans.property.ReadOnlyStringProperty;
+import javafx.beans.property.ReadOnlyStringWrapper;
 import moe.div.moequickgate.bean.MoeProxy;
+import moe.div.moequickgate.bean.OperationLogEntry;
+import moe.div.moequickgate.bean.OperationLogEntry.Action;
+import moe.div.moequickgate.bean.OperationLogEntry.Result;
+import moe.div.moequickgate.bean.OperationLogEntry.Trigger;
 import moe.div.moequickgate.bean.ProxyComponent;
 import moe.div.moequickgate.bean.ProxyProtocol;
 import moe.div.moequickgate.bean.ProxyValidator;
 import moe.div.moequickgate.proxy.IProxy;
+import moe.div.moequickgate.repository.LogRepository;
+import moe.div.moequickgate.repository.LogRepositoryContext;
 
 /**
  * 协调代理列表与组件实时状态。
@@ -34,11 +44,22 @@ public final class MainViewModel implements AutoCloseable {
             new EnumMap<>(ProxyComponent.class);
     private final ScheduledExecutorService worker;
     private final Consumer<Runnable> uiDispatcher;
+    private final LogRepository logRepository;
+    private final Path logPath;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicBoolean loggingAvailable = new AtomicBoolean();
     private final ReadOnlyBooleanWrapper operationInProgress = new ReadOnlyBooleanWrapper();
+    private final ReadOnlyStringWrapper logWarning = new ReadOnlyStringWrapper("");
 
     public MainViewModel(ProxyListViewModel proxyListViewModel, List<IProxy> proxyServices) {
+        this(proxyListViewModel, proxyServices, noLoggingContext());
+    }
+
+    public MainViewModel(
+            ProxyListViewModel proxyListViewModel,
+            List<IProxy> proxyServices,
+            LogRepositoryContext logContext) {
         this(
                 proxyListViewModel,
                 proxyServices,
@@ -47,7 +68,8 @@ public final class MainViewModel implements AutoCloseable {
                     thread.setDaemon(true);
                     return thread;
                 }),
-                MainViewModel::dispatchToJavaFx);
+                MainViewModel::dispatchToJavaFx,
+                logContext);
     }
 
     MainViewModel(
@@ -55,9 +77,23 @@ public final class MainViewModel implements AutoCloseable {
             List<IProxy> proxyServices,
             ScheduledExecutorService worker,
             Consumer<Runnable> uiDispatcher) {
+        this(proxyListViewModel, proxyServices, worker, uiDispatcher, noLoggingContext());
+    }
+
+    MainViewModel(
+            ProxyListViewModel proxyListViewModel,
+            List<IProxy> proxyServices,
+            ScheduledExecutorService worker,
+            Consumer<Runnable> uiDispatcher,
+            LogRepositoryContext logContext) {
         this.proxyListViewModel = Objects.requireNonNull(proxyListViewModel);
         this.worker = Objects.requireNonNull(worker);
         this.uiDispatcher = Objects.requireNonNull(uiDispatcher);
+        LogRepositoryContext checkedLogContext = Objects.requireNonNull(logContext);
+        this.logRepository = checkedLogContext.repository();
+        this.logPath = checkedLogContext.logPath();
+        this.loggingAvailable.set(checkedLogContext.available());
+        this.logWarning.set(checkedLogContext.warning() == null ? "" : checkedLogContext.warning());
         for (IProxy proxyService : proxyServices) {
             components.put(proxyService.getComponent(),
                     new ComponentStatusViewModel(proxyService, uiDispatcher));
@@ -82,6 +118,14 @@ public final class MainViewModel implements AutoCloseable {
 
     public ReadOnlyBooleanProperty operationInProgressProperty() {
         return operationInProgress.getReadOnlyProperty();
+    }
+
+    public String getLogWarning() {
+        return logWarning.get();
+    }
+
+    public ReadOnlyStringProperty logWarningProperty() {
+        return logWarning.getReadOnlyProperty();
     }
 
     public void start() {
@@ -112,6 +156,7 @@ public final class MainViewModel implements AutoCloseable {
         }
         return coordinatedMutation(
                 "新增并选择代理",
+                Trigger.ADD_FIRST,
                 enabled,
                 target,
                 null,
@@ -125,6 +170,7 @@ public final class MainViewModel implements AutoCloseable {
         requireSupportedWhenEnabled(target, enabled);
         return coordinatedMutation(
                 "选择代理",
+                Trigger.SELECT,
                 enabled,
                 target,
                 previous,
@@ -141,6 +187,7 @@ public final class MainViewModel implements AutoCloseable {
         requireSupportedWhenEnabled(target, enabled);
         return coordinatedMutation(
                 "编辑代理",
+                Trigger.EDIT,
                 enabled,
                 target,
                 current ? previous : null,
@@ -156,7 +203,8 @@ public final class MainViewModel implements AutoCloseable {
             List<ComponentStatusViewModel> changed = new ArrayList<>();
             try {
                 for (ComponentStatusViewModel component : enabled) {
-                    component.disableNow();
+                    performComponent(
+                            component, Trigger.DELETE, Action.DISABLE, target, component::disableNow);
                     changed.add(component);
                 }
                 runOnUiAndWait(() -> {
@@ -164,7 +212,8 @@ public final class MainViewModel implements AutoCloseable {
                     return null;
                 });
             } catch (RuntimeException exception) {
-                throw coordinatedFailure("删除代理", exception, rollback(changed, target));
+                throw coordinatedFailure(
+                        "删除代理", exception, rollback(changed, target, Trigger.DELETE));
             }
         });
     }
@@ -183,10 +232,21 @@ public final class MainViewModel implements AutoCloseable {
                         "APT 和 NPM 暂不支持 SOCKS5。", "选择 HTTP 或 HTTPS 代理后重试。");
             }
             return submit("开启 " + component.getDisplayName() + " 代理",
-                    List.of(componentViewModel), () -> componentViewModel.enableNow(selected));
+                    List.of(componentViewModel), () -> performComponent(
+                            componentViewModel,
+                            Trigger.TOGGLE,
+                            Action.ENABLE,
+                            selected,
+                            () -> componentViewModel.enableNow(selected)));
         }
+        MoeProxy selected = copy(proxyListViewModel.getSelectedProxy());
         return submit("关闭 " + component.getDisplayName() + " 代理",
-                List.of(componentViewModel), componentViewModel::disableNow);
+                List.of(componentViewModel), () -> performComponent(
+                        componentViewModel,
+                        Trigger.TOGGLE,
+                        Action.DISABLE,
+                        selected,
+                        componentViewModel::disableNow));
     }
 
     @Override
@@ -198,6 +258,7 @@ public final class MainViewModel implements AutoCloseable {
 
     private CompletableFuture<Void> coordinatedMutation(
             String action,
+            Trigger trigger,
             List<ComponentStatusViewModel> affected,
             MoeProxy target,
             MoeProxy rollbackProxy,
@@ -206,7 +267,12 @@ public final class MainViewModel implements AutoCloseable {
             List<ComponentStatusViewModel> changed = new ArrayList<>();
             try {
                 for (ComponentStatusViewModel component : affected) {
-                    component.enableNow(target);
+                    performComponent(
+                            component,
+                            trigger,
+                            Action.ENABLE,
+                            target,
+                            () -> component.enableNow(target));
                     changed.add(component);
                 }
                 runOnUiAndWait(() -> {
@@ -214,21 +280,34 @@ public final class MainViewModel implements AutoCloseable {
                     return null;
                 });
             } catch (RuntimeException exception) {
-                throw coordinatedFailure(action, exception, rollback(changed, rollbackProxy));
+                throw coordinatedFailure(
+                        action, exception, rollback(changed, rollbackProxy, trigger));
             }
         });
     }
 
     private List<String> rollback(
-            List<ComponentStatusViewModel> changed, MoeProxy rollbackProxy) {
+            List<ComponentStatusViewModel> changed,
+            MoeProxy rollbackProxy,
+            Trigger trigger) {
         List<String> failures = new ArrayList<>();
         for (int index = changed.size() - 1; index >= 0; index--) {
             ComponentStatusViewModel component = changed.get(index);
             try {
                 if (rollbackProxy == null) {
-                    component.disableNow();
+                    performComponent(
+                            component,
+                            trigger,
+                            Action.ROLLBACK_DISABLE,
+                            null,
+                            component::disableNow);
                 } else {
-                    component.enableNow(rollbackProxy);
+                    performComponent(
+                            component,
+                            trigger,
+                            Action.ROLLBACK_ENABLE,
+                            rollbackProxy,
+                            () -> component.enableNow(rollbackProxy));
                 }
             } catch (RuntimeException rollbackFailure) {
                 failures.add(component.getComponent().getDisplayName() + "："
@@ -236,6 +315,56 @@ public final class MainViewModel implements AutoCloseable {
             }
         }
         return failures;
+    }
+
+    private void performComponent(
+            ComponentStatusViewModel component,
+            Trigger trigger,
+            Action action,
+            MoeProxy proxy,
+            Runnable operation) {
+        long startedAt = System.nanoTime();
+        try {
+            operation.run();
+            appendLog(component, trigger, action, proxy, Result.SUCCESS,
+                    elapsedMillis(startedAt), "成功");
+        } catch (RuntimeException exception) {
+            appendLog(component, trigger, action, proxy, Result.FAILURE,
+                    elapsedMillis(startedAt), rootMessage(exception));
+            throw exception;
+        }
+    }
+
+    private void appendLog(
+            ComponentStatusViewModel component,
+            Trigger trigger,
+            Action action,
+            MoeProxy proxy,
+            Result result,
+            long durationMillis,
+            String detail) {
+        if (!loggingAvailable.get()) {
+            return;
+        }
+        try {
+            logRepository.append(new OperationLogEntry(
+                    OffsetDateTime.now(),
+                    component.getComponent(),
+                    trigger,
+                    action,
+                    proxy == null ? "" : proxy.getName(),
+                    proxy == null || proxy.getProtocol() == null ? "" : proxy.getProtocol().name(),
+                    proxy == null ? "" : proxy.getEndpoint(),
+                    result,
+                    durationMillis,
+                    detail));
+        } catch (RuntimeException exception) {
+            if (loggingAvailable.compareAndSet(true, false)) {
+                String warning = "操作日志不可用，后续操作不会记录。路径："
+                        + logPath + "；原因：" + rootMessage(exception);
+                uiDispatcher.accept(() -> logWarning.set(warning));
+            }
+        }
     }
 
     private OperationException coordinatedFailure(
@@ -353,6 +482,25 @@ public final class MainViewModel implements AutoCloseable {
 
     private static MoeProxy copy(MoeProxy proxy) {
         return proxy == null ? null : proxy.copy();
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+    }
+
+    private static LogRepositoryContext noLoggingContext() {
+        Path path = Path.of("operations.log").toAbsolutePath().normalize();
+        LogRepository repository = new LogRepository() {
+            @Override
+            public void append(OperationLogEntry entry) {
+            }
+
+            @Override
+            public Path getLogPath() {
+                return path;
+            }
+        };
+        return new LogRepositoryContext(repository, false, "", path);
     }
 
     private static String suggestion(Throwable throwable) {

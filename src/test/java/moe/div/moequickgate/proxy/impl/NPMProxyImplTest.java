@@ -15,7 +15,11 @@ import java.util.List;
 import java.util.Map;
 import moe.div.moequickgate.bean.MoeProxy;
 import moe.div.moequickgate.bean.ProxyProtocol;
+import moe.div.moequickgate.proxy.ProxyFailureType;
 import moe.div.moequickgate.proxy.ProxyOperationException;
+import moe.div.moequickgate.utils.CommandExecutionException;
+import moe.div.moequickgate.utils.CommandExecutor;
+import moe.div.moequickgate.utils.CommandResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -81,24 +85,40 @@ class NPMProxyImplTest {
                 temporaryDirectory.resolve("missing"), runner, Map.of());
 
         assertFalse(service.check().available());
-        assertThrows(ProxyOperationException.class, service::disable);
+        ProxyOperationException failure = assertThrows(ProxyOperationException.class, service::disable);
+        assertEquals(ProxyFailureType.TOOL_MISSING, failure.getFailureType());
     }
 
-    private static final class FakeNpmRunner implements ProcessRunner {
+    @Test
+    void classifiesCommandTimeout() {
+        runner.failureType = CommandExecutionException.FailureType.TIMEOUT;
+        NPMProxyImpl service = new NPMProxyImpl(npm, runner, Map.of());
+
+        ProxyOperationException failure = assertThrows(ProxyOperationException.class, service::check);
+
+        assertEquals(ProxyFailureType.TIMEOUT, failure.getFailureType());
+    }
+
+    private static final class FakeNpmRunner implements CommandExecutor {
         private final Map<String, String> values = new HashMap<>();
         private boolean failNextHttpsSet;
+        private CommandExecutionException.FailureType failureType;
 
         @Override
-        public ProcessResult run(List<String> command, Duration timeout) {
+        public CommandResult execute(List<String> command, Duration timeout) {
+            if (failureType != null) {
+                throw new CommandExecutionException(
+                        failureType, "simulated command failure", "", "", null);
+            }
             String operation = command.get(2);
             String key = command.get(3);
             if (operation.equals("get")) {
-                return new ProcessResult(0, values.getOrDefault(key, "null") + "\n", false);
+                return result(0, values.getOrDefault(key, "null") + "\n", "");
             }
             if (operation.equals("set")) {
                 if (key.equals("https-proxy") && failNextHttpsSet) {
                     failNextHttpsSet = false;
-                    return new ProcessResult(1, "simulated failure", false);
+                    return result(1, "", "simulated failure");
                 }
                 String value = command.get(4);
                 if (value.equals("null")) {
@@ -106,9 +126,14 @@ class NPMProxyImplTest {
                 } else {
                     values.put(key, value);
                 }
-                return new ProcessResult(0, "", false);
+                return result(0, "", "");
             }
-            return new ProcessResult(1, "unexpected command", false);
+            return result(1, "", "unexpected command");
+        }
+
+        private static CommandResult result(int exitCode, String stdout, String stderr) {
+            return new CommandResult(
+                    exitCode, stdout, stderr, Duration.ofMillis(1), false, false);
         }
     }
 }

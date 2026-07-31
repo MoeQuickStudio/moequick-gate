@@ -8,10 +8,14 @@ import javafx.scene.Scene;
 import moe.div.moequickgate.controller.MainController;
 import moe.div.moequickgate.proxy.impl.APTProxyImpl;
 import moe.div.moequickgate.proxy.impl.NPMProxyImpl;
+import moe.div.moequickgate.repository.LogRepositoryContext;
+import moe.div.moequickgate.repository.LogRepositoryFactory;
 import moe.div.moequickgate.repository.ProxyRepositoryFactory;
 import moe.div.moequickgate.repository.RepositoryContext;
 import moe.div.moequickgate.viewmodel.MainViewModel;
 import moe.div.moequickgate.viewmodel.ProxyListViewModel;
+import moe.div.moequickgate.utils.CommandExecutor;
+import moe.div.moequickgate.utils.CommandUtil;
 
 /**
  * 创建并加载主场景。
@@ -34,8 +38,14 @@ public final class MainScene {
                 repositoryContext.repository(),
                 repositoryContext.persistent(),
                 repositoryContext.warning());
+        CommandExecutor commandExecutor = new CommandUtil();
+        LogRepositoryContext logContext = LogRepositoryFactory.createDefault();
         MainViewModel mainViewModel = new MainViewModel(
-                viewModel, java.util.List.of(new APTProxyImpl(), new NPMProxyImpl()));
+                viewModel,
+                java.util.List.of(
+                        new APTProxyImpl(commandExecutor),
+                        new NPMProxyImpl(commandExecutor)),
+                logContext);
 
         try {
             FXMLLoader loader = new FXMLLoader(fxmlResource);
