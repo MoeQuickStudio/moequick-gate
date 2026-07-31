@@ -2,9 +2,9 @@
 
 MoeQuick Gate（萌快网络助手）是一款面向 Linux 开发者的网络代理配置助手。
 
-当前开发进度：Phase 2 UI 框架实现。应用已提供代理列表、代理卡片以及 APT/NPM 状态区域的基础界面交互。
+当前开发进度：Phase 3 代理配置管理。应用已支持代理配置的新增、编辑、删除、选择和 SQLite 持久化。
 
-当前代理和组件状态均为内存演示数据，重启应用后会复位。代理 CRUD、数据存储和真实系统代理控制将在后续阶段实现。
+APT/NPM 开关仍为内存界面演示，真实系统代理控制将在 Phase 4 实现。
 
 ## 开发环境
 
@@ -26,6 +26,28 @@ sudo apt-get install -y openjdk-21-jdk fakeroot binutils
 ```bash
 ./gradlew run
 ./gradlew clean test build
+```
+
+## 数据存储
+
+SQLite 数据库默认保存在：
+
+```text
+$XDG_DATA_HOME/moequick-gate/moequick-gate.db
+```
+
+未设置有效的绝对 `XDG_DATA_HOME` 时，使用：
+
+```text
+~/.local/share/moequick-gate/moequick-gate.db
+```
+
+首次建库会创建并选中一条 Clash 本机监听示例。数据库无法使用时，应用会显示警告并降级到不会持久化的内存模式。
+
+开发时可使用临时目录，避免修改真实用户数据：
+
+```bash
+XDG_DATA_HOME=/tmp/moequick-gate-dev ./gradlew run
 ```
 
 ## 运行时镜像

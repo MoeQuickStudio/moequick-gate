@@ -15,6 +15,7 @@ class ProjectInitializationTest {
     void mainFxmlIsAvailableFromTheModulePath() {
         assertNotNull(MainScene.class.getResource(MainScene.FXML_RESOURCE));
         assertNotNull(MainController.class.getResource(MainController.PROXY_CARD_RESOURCE));
+        assertNotNull(MainController.class.getResource(MainController.PROXY_FORM_RESOURCE));
         assertNotNull(MainScene.class.getResource(MainScene.CSS_RESOURCE));
     }
 

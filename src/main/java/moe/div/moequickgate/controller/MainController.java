@@ -2,31 +2,47 @@ package moe.div.moequickgate.controller;
 
 import java.io.IOException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
+import javafx.collections.ListChangeListener;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Parent;
 import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.layout.FlowPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
+import moe.div.moequickgate.bean.MoeProxy;
+import moe.div.moequickgate.viewmodel.ProxyListViewModel;
 
 /**
- * 处理主界面的展示层事件。
- * Handles presentation-only events for the main view.
+ * 处理主界面的展示层事件，并将数据操作委托给 ViewModel。
+ * Handles main-view events and delegates data operations to the ViewModel.
  */
 public final class MainController {
     public static final String PROXY_CARD_RESOURCE = "/fxml/proxy_card.fxml";
-    private static final String DEMO_PROXY_NAME = "Clash 本机监听";
-    private static final String DEMO_PROXY_PROTOCOL = "HTTP";
-    private static final String DEMO_PROXY_ENDPOINT = "127.0.0.1:7890";
+    public static final String PROXY_FORM_RESOURCE = "/fxml/proxy_form.fxml";
+
+    private final ProxyListViewModel viewModel;
+    private final Map<Long, ProxyCardController> proxyCards = new LinkedHashMap<>();
 
     @FXML
     private Label currentProxyLabel;
 
     @FXML
     private FlowPane proxyList;
+
+    @FXML
+    private HBox persistenceWarningBanner;
+
+    @FXML
+    private Label persistenceWarningLabel;
 
     @FXML
     private Label aptStatusLabel;
@@ -40,19 +56,25 @@ public final class MainController {
     @FXML
     private ToggleButton npmToggle;
 
-    private final List<ProxyCardController> proxyCards = new ArrayList<>();
+    public MainController(ProxyListViewModel viewModel) {
+        this.viewModel = viewModel;
+    }
 
     @FXML
     private void initialize() {
-        ProxyCardController demoCard = addDemoProxyCard();
-        selectProxyCard(demoCard);
+        viewModel.getProxies().addListener(
+                (ListChangeListener<MoeProxy>) change -> refreshProxyCards());
+        viewModel.selectedProxyProperty().addListener(
+                (observable, previous, current) -> refreshSelection());
+        showPersistenceState();
+        refreshProxyCards();
         updateComponentStatus(aptToggle, aptStatusLabel);
         updateComponentStatus(npmToggle, npmStatusLabel);
     }
 
     @FXML
     private void handleAddProxy() {
-        showPhase3Notice("新增代理");
+        showProxyEditor(null);
     }
 
     @FXML
@@ -65,25 +87,33 @@ public final class MainController {
         updateComponentStatus(npmToggle, npmStatusLabel);
     }
 
-    private ProxyCardController addDemoProxyCard() {
-        URL resource = MainController.class.getResource(PROXY_CARD_RESOURCE);
-        if (resource == null) {
-            throw new IllegalStateException(
-                    "无法加载代理卡片 / Unable to load proxy card: resource not found: "
-                            + PROXY_CARD_RESOURCE);
-        }
+    private void refreshProxyCards() {
+        proxyList.getChildren().clear();
+        proxyCards.clear();
 
+        if (viewModel.getProxies().isEmpty()) {
+            Label emptyState = new Label("暂无代理配置，点击“新增代理”开始。");
+            emptyState.getStyleClass().add("empty-state");
+            proxyList.getChildren().add(emptyState);
+        } else {
+            viewModel.getProxies().forEach(this::addProxyCard);
+        }
+        refreshSelection();
+    }
+
+    private void addProxyCard(MoeProxy proxy) {
+        URL resource = requireResource(PROXY_CARD_RESOURCE, "代理卡片 / proxy card");
         FXMLLoader loader = new FXMLLoader(resource);
         try {
             Parent card = loader.load();
             ProxyCardController controller = loader.getController();
-            controller.configure(DEMO_PROXY_NAME, DEMO_PROXY_PROTOCOL, DEMO_PROXY_ENDPOINT);
-            controller.setSelectionHandler(this::selectProxyCard);
-            controller.setEditHandler(() -> showPhase3Notice("编辑代理"));
-            controller.setDeleteHandler(() -> showPhase3Notice("删除代理"));
-            proxyCards.add(controller);
+            controller.configure(proxy);
+            controller.setSelectionHandler(selected -> runDataOperation(
+                    "选择代理", () -> viewModel.selectProxy(selected.getId())));
+            controller.setEditHandler(this::showProxyEditor);
+            controller.setDeleteHandler(this::confirmDelete);
+            proxyCards.put(proxy.getId(), controller);
             proxyList.getChildren().add(card);
-            return controller;
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "无法加载代理卡片 / Unable to load proxy card: " + PROXY_CARD_RESOURCE,
@@ -91,9 +121,101 @@ public final class MainController {
         }
     }
 
-    private void selectProxyCard(ProxyCardController selectedCard) {
-        proxyCards.forEach(card -> card.setSelected(card == selectedCard));
-        currentProxyLabel.setText("当前代理：" + selectedCard.getSummary());
+    private void refreshSelection() {
+        MoeProxy selected = viewModel.getSelectedProxy();
+        proxyCards.forEach((id, card) -> card.setSelected(selected != null && id == selected.getId()));
+        currentProxyLabel.setText(selected == null
+                ? "当前代理：未选择"
+                : "当前代理：" + selected.getName() + " · " + selected.getProtocol()
+                        + " · " + selected.getEndpoint());
+    }
+
+    private void showProxyEditor(MoeProxy existingProxy) {
+        URL resource = requireResource(PROXY_FORM_RESOURCE, "代理表单 / proxy form");
+        FXMLLoader loader = new FXMLLoader(resource);
+        VBox content;
+        ProxyFormController formController;
+        try {
+            content = loader.load();
+            formController = loader.getController();
+        } catch (IOException exception) {
+            showError("打开代理表单失败", exception);
+            return;
+        }
+
+        formController.configure(existingProxy);
+        DialogResult dialogResult = createEditorDialog(existingProxy, content, formController);
+        if (!dialogResult.saved()) {
+            return;
+        }
+
+        MoeProxy input = formController.getValidatedProxy(existingProxy == null ? 0 : existingProxy.getId());
+        if (existingProxy == null) {
+            runDataOperation("新增代理", () -> viewModel.addProxy(
+                    input.getName(), input.getHost(), input.getPort(), input.getProtocol()));
+        } else {
+            runDataOperation("编辑代理", () -> viewModel.updateProxy(
+                    input.getId(),
+                    input.getName(),
+                    input.getHost(),
+                    input.getPort(),
+                    input.getProtocol()));
+        }
+    }
+
+    private DialogResult createEditorDialog(
+            MoeProxy existingProxy, VBox content, ProxyFormController formController) {
+        javafx.scene.control.Dialog<ButtonType> dialog = new javafx.scene.control.Dialog<>();
+        dialog.setTitle(existingProxy == null ? "新增代理" : "编辑代理");
+        dialog.setHeaderText(existingProxy == null ? "创建代理配置" : "修改代理配置");
+        if (proxyList.getScene() != null) {
+            dialog.initOwner(proxyList.getScene().getWindow());
+        }
+        dialog.getDialogPane().setContent(content);
+        ButtonType saveType = new ButtonType("保存", ButtonBar.ButtonData.OK_DONE);
+        ButtonType cancelType = new ButtonType("取消", ButtonBar.ButtonData.CANCEL_CLOSE);
+        dialog.getDialogPane().getButtonTypes().addAll(saveType, cancelType);
+        if (proxyList.getScene() != null) {
+            dialog.getDialogPane().getStylesheets().addAll(proxyList.getScene().getStylesheets());
+        }
+        Button saveButton = (Button) dialog.getDialogPane().lookupButton(saveType);
+        saveButton.disableProperty().bind(formController.validProperty().not());
+
+        Optional<ButtonType> result = dialog.showAndWait();
+        return new DialogResult(result.isPresent() && result.get() == saveType);
+    }
+
+    private void confirmDelete(MoeProxy proxy) {
+        Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
+        confirmation.setTitle("删除代理");
+        confirmation.setHeaderText("确定删除“" + proxy.getName() + "”吗？");
+        confirmation.setContentText("此操作无法撤销。若删除当前代理，当前选择将被清空。");
+        if (proxyList.getScene() != null) {
+            confirmation.initOwner(proxyList.getScene().getWindow());
+        }
+        if (confirmation.showAndWait().filter(ButtonType.OK::equals).isPresent()) {
+            runDataOperation("删除代理", () -> viewModel.deleteProxy(proxy.getId()));
+        }
+    }
+
+    private void runDataOperation(String action, Runnable operation) {
+        try {
+            operation.run();
+        } catch (RuntimeException exception) {
+            showError(action + "失败", exception);
+            try {
+                viewModel.reload();
+            } catch (RuntimeException reloadFailure) {
+                showError("重新加载最后保存状态失败", reloadFailure);
+            }
+        }
+    }
+
+    private void showPersistenceState() {
+        boolean showWarning = !viewModel.isPersistent();
+        persistenceWarningBanner.setManaged(showWarning);
+        persistenceWarningBanner.setVisible(showWarning);
+        persistenceWarningLabel.setText(viewModel.getPersistenceWarning());
     }
 
     private void updateComponentStatus(ToggleButton toggle, Label statusLabel) {
@@ -104,15 +226,34 @@ public final class MainController {
         setStyleClass(statusLabel, "component-status-enabled", enabled);
     }
 
-    private void showPhase3Notice(String action) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+    private void showError(String action, Throwable throwable) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
         alert.setTitle("MoeQuick Gate");
         alert.setHeaderText(action);
-        alert.setContentText("该功能将在 Phase 3：代理配置管理中提供。");
+        alert.setContentText("原因：" + rootMessage(throwable)
+                + "\n建议：检查数据库目录权限和磁盘状态后重试。");
         if (proxyList.getScene() != null) {
             alert.initOwner(proxyList.getScene().getWindow());
         }
         alert.showAndWait();
+    }
+
+    private URL requireResource(String path, String description) {
+        URL resource = MainController.class.getResource(path);
+        if (resource == null) {
+            throw new IllegalStateException(
+                    "无法加载" + description + " / Unable to load " + description
+                            + ": resource not found: " + path);
+        }
+        return resource;
+    }
+
+    private static String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
     private static void setStyleClass(javafx.scene.Node node, String styleClass, boolean enabled) {
@@ -123,5 +264,8 @@ public final class MainController {
         } else {
             node.getStyleClass().remove(styleClass);
         }
+    }
+
+    private record DialogResult(boolean saved) {
     }
 }

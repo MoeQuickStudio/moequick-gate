@@ -35,6 +35,20 @@
                 <Insets bottom="24.0" left="28.0" right="28.0" top="22.0" />
             </padding>
 
+            <HBox fx:id="persistenceWarningBanner"
+                  alignment="CENTER_LEFT"
+                  managed="false"
+                  spacing="8.0"
+                  visible="false"
+                  styleClass="persistence-warning">
+                <Label text="!" styleClass="warning-icon" />
+                <Label fx:id="persistenceWarningLabel"
+                       maxWidth="Infinity"
+                       wrapText="true"
+                       HBox.hgrow="ALWAYS"
+                       styleClass="warning-text" />
+            </HBox>
+
             <VBox spacing="12.0" VBox.vgrow="ALWAYS" styleClass="section-panel">
                 <HBox alignment="CENTER_LEFT" spacing="12.0">
                     <VBox spacing="3.0">
@@ -65,7 +79,8 @@
             <VBox spacing="12.0" styleClass="section-panel">
                 <VBox spacing="3.0">
                     <Label text="组件状态" styleClass="section-title" />
-                    <Label text="Phase 2 开关仅用于界面交互演示" styleClass="section-description" />
+                    <Label text="组件代理控制将在 Phase 4 提供，当前开关仅用于界面演示"
+                           styleClass="section-description" />
                 </VBox>
 
                 <HBox spacing="14.0">

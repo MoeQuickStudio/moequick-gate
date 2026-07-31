@@ -25,6 +25,23 @@
     -fx-background-color: #f4f7fb;
 }
 
+.persistence-warning {
+    -fx-background-color: #fff7ed;
+    -fx-background-radius: 8px;
+    -fx-border-color: #fdba74;
+    -fx-border-radius: 8px;
+    -fx-padding: 10px 12px;
+}
+
+.warning-icon {
+    -fx-font-weight: bold;
+    -fx-text-fill: #c2410c;
+}
+
+.warning-text {
+    -fx-text-fill: #9a3412;
+}
+
 .section-panel {
     -fx-background-color: #ffffff;
     -fx-background-radius: 12px;
@@ -55,6 +72,11 @@
 
 .proxy-list {
     -fx-padding: 2px 2px 8px 2px;
+}
+
+.empty-state {
+    -fx-padding: 24px;
+    -fx-text-fill: #667085;
 }
 
 .proxy-card {
@@ -159,4 +181,18 @@
 .component-status-enabled {
     -fx-text-fill: #15803d;
     -fx-font-weight: bold;
+}
+
+.proxy-form {
+    -fx-padding: 4px;
+}
+
+.form-label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #344054;
+}
+
+.form-validation {
+    -fx-text-fill: #b42318;
+    -fx-padding: 4px 0 0 0;
 }

@@ -6,6 +6,7 @@ import javafx.fxml.FXML;
 import javafx.scene.control.Label;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.VBox;
+import moe.div.moequickgate.bean.MoeProxy;
 
 /**
  * 处理单个代理卡片的展示和界面事件。
@@ -29,14 +30,16 @@ public final class ProxyCardController {
     @FXML
     private Label selectionLabel;
 
-    private Consumer<ProxyCardController> selectionHandler;
-    private Runnable editHandler;
-    private Runnable deleteHandler;
+    private MoeProxy proxy;
+    private Consumer<MoeProxy> selectionHandler;
+    private Consumer<MoeProxy> editHandler;
+    private Consumer<MoeProxy> deleteHandler;
 
-    public void configure(String name, String protocol, String endpoint) {
-        nameLabel.setText(Objects.requireNonNull(name));
-        protocolLabel.setText(Objects.requireNonNull(protocol));
-        endpointLabel.setText(Objects.requireNonNull(endpoint));
+    public void configure(MoeProxy proxy) {
+        this.proxy = Objects.requireNonNull(proxy);
+        nameLabel.setText(proxy.getName());
+        protocolLabel.setText(proxy.getProtocol().name());
+        endpointLabel.setText(proxy.getEndpoint());
     }
 
     public void setSelected(boolean selected) {
@@ -51,40 +54,36 @@ public final class ProxyCardController {
         }
     }
 
-    public String getSummary() {
-        return nameLabel.getText() + " · " + protocolLabel.getText() + " · " + endpointLabel.getText();
-    }
-
-    public void setSelectionHandler(Consumer<ProxyCardController> selectionHandler) {
+    public void setSelectionHandler(Consumer<MoeProxy> selectionHandler) {
         this.selectionHandler = Objects.requireNonNull(selectionHandler);
     }
 
-    public void setEditHandler(Runnable editHandler) {
+    public void setEditHandler(Consumer<MoeProxy> editHandler) {
         this.editHandler = Objects.requireNonNull(editHandler);
     }
 
-    public void setDeleteHandler(Runnable deleteHandler) {
+    public void setDeleteHandler(Consumer<MoeProxy> deleteHandler) {
         this.deleteHandler = Objects.requireNonNull(deleteHandler);
     }
 
     @FXML
     private void handleCardClicked(MouseEvent event) {
         if (selectionHandler != null) {
-            selectionHandler.accept(this);
+            selectionHandler.accept(proxy);
         }
     }
 
     @FXML
     private void handleEdit() {
         if (editHandler != null) {
-            editHandler.run();
+            editHandler.accept(proxy);
         }
     }
 
     @FXML
     private void handleDelete() {
         if (deleteHandler != null) {
-            deleteHandler.run();
+            deleteHandler.accept(proxy);
         }
     }
 }
