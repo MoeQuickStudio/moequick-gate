@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=MoeQuick Gate
+Comment=MoeQuick Gate developer network proxy manager
+Exec=/opt/moequick-gate/bin/moequick-gate
+Icon=/opt/moequick-gate/lib/moequick-gate.png
+Terminal=false
+Type=Application
+Categories=Network;

@@ -2,27 +2,66 @@
 
 MoeQuick Gate（萌快网络助手）是一款面向 Linux 开发者的网络代理配置助手。
 
-当前开发进度：Phase 5 系统集成。应用已支持代理配置持久化、APT/NPM 代理控制、统一命令执行、结构化错误提示和文本操作日志。
+当前版本：v0.1.0 MVP。应用已支持代理配置持久化、APT/NPM 代理控制、统一命令执行、结构化错误提示和文本操作日志。
 
 组件控制支持 HTTP、HTTPS 代理；SOCKS5 配置可以保存，但暂不能应用到 APT/NPM。
+
+![MoeQuick Gate 主界面](docs/images/main-window.png)
 
 ## 开发环境
 
 - Ubuntu 24.04 x86_64
 - OpenJDK 21（需要包含 `javac`、`jlink` 和 `jpackage`）
 - `fakeroot`、`binutils` 和 `dpkg-deb`
-- `policykit-1`（APT 修改时按需授权）
-- `npm`（仅使用 NPM 组件时需要）
+- `policykit-1`（deb 会自动安装，APT 修改时按需授权）
+- `npm`（可选，仅使用 NPM 组件时需要）
 
 Ubuntu 安装命令：
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y openjdk-21-jdk fakeroot binutils policykit-1 npm
-command -v pkexec apt-config npm
+sudo apt-get install -y openjdk-21-jdk fakeroot binutils policykit-1
+command -v java javac jlink jpackage fakeroot dpkg-deb pkexec apt-config
 ```
 
 项目通过 Gradle Wrapper 固定构建工具版本，无需单独安装 Gradle。
+
+需要使用 NPM 组件时再安装：
+
+```bash
+sudo apt-get install -y npm
+command -v npm
+```
+
+## 安装 v0.1.0
+
+从 [GitHub Release v0.1.0](https://github.com/MoeQuickStudio/moequick-gate/releases/tag/v0.1.0) 下载以下两个文件：
+
+```text
+moequick-gate_0.1.0_amd64.deb
+moequick-gate_0.1.0_amd64.deb.sha256
+```
+
+在下载目录校验并安装：
+
+```bash
+sha256sum --check moequick-gate_0.1.0_amd64.deb.sha256
+sudo apt install ./moequick-gate_0.1.0_amd64.deb
+```
+
+安装后可从桌面应用菜单打开 “MoeQuick Gate”，也可以运行：
+
+```bash
+/opt/moequick-gate/bin/moequick-gate
+```
+
+使用相同命令安装更高版本 deb 即可升级。卸载应用：
+
+```bash
+sudo apt remove moequick-gate
+```
+
+卸载软件包不会删除用户代理数据库和操作日志。它们仍分别保存在 XDG data 与 state 目录，需要时由用户自行备份或清理。
 
 ## 运行与测试
 
@@ -119,11 +158,13 @@ stat -c '%a %s %n' "${XDG_STATE_HOME:-$HOME/.local/state}/moequick-gate/operatio
 
 ```bash
 ./gradlew jpackage
+sha256sum build/jpackage/moequick-gate_0.1.0_amd64.deb \
+  > build/jpackage/moequick-gate_0.1.0_amd64.deb.sha256
 dpkg-deb --info build/jpackage/moequick-gate_0.1.0_amd64.deb
 dpkg-deb --contents build/jpackage/moequick-gate_0.1.0_amd64.deb
 ```
 
-当前阶段持续验证 deb 可以生成且内容正确。正式安装、卸载、桌面集成和 GitHub Release 仍属于 Phase 6。
+deb 包含应用桌面入口、正式图标、MIT 许可证，以及 Java、JavaFX 和 SQLite 所需 Runtime。目标平台为 Ubuntu 24.04 x86_64。
 
 ## 当前边界
 
@@ -132,3 +173,7 @@ dpkg-deb --contents build/jpackage/moequick-gate_0.1.0_amd64.deb
 - 不提供日志查看或清空 UI；请使用系统文本工具诊断。
 - 不支持 Git、Pip、Docker 或其他组件。
 - 不包含自定义 PolicyKit 规则，也不执行 `apt update`。
+
+## 许可证
+
+MoeQuick Gate 使用 [MIT License](LICENSE)。

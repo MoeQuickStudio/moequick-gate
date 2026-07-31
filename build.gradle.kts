@@ -45,14 +45,25 @@ jlink {
     }
 
     jpackage {
-        imageName = "MoeQuick Gate"
+        imageName = "moequick-gate"
         installerName = "moequick-gate"
         installerType = "deb"
         appVersion = project.version.toString()
-        vendor = "moe.div"
+        vendor = "MoeQuickStudio"
+        setResourceDir(layout.projectDirectory.dir("src/main/jpackage").asFile)
+        icon = layout.projectDirectory.file(
+            "src/main/resources/icon/moequick-gate.png"
+        ).asFile.absolutePath
         installerOptions = listOf(
             "--linux-package-name", "moequick-gate",
-            "--description", "MoeQuick Gate developer network assistant"
+            "--linux-deb-maintainer", "linmo456@hotmmail.com",
+            "--linux-app-category", "net",
+            "--linux-package-deps", "policykit-1",
+            "--linux-shortcut",
+            "--license-file", layout.projectDirectory.file("LICENSE").asFile.absolutePath,
+            "--about-url", "https://github.com/MoeQuickStudio/moequick-gate",
+            "--copyright", "Copyright (c) 2026 MoeQuickStudio",
+            "--description", "MoeQuick Gate developer network proxy manager"
         )
     }
 }
