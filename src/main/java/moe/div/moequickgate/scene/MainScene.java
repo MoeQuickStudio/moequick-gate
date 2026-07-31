@@ -6,8 +6,11 @@ import javafx.fxml.FXMLLoader;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import moe.div.moequickgate.controller.MainController;
+import moe.div.moequickgate.proxy.impl.APTProxyImpl;
+import moe.div.moequickgate.proxy.impl.NPMProxyImpl;
 import moe.div.moequickgate.repository.ProxyRepositoryFactory;
 import moe.div.moequickgate.repository.RepositoryContext;
+import moe.div.moequickgate.viewmodel.MainViewModel;
 import moe.div.moequickgate.viewmodel.ProxyListViewModel;
 
 /**
@@ -31,12 +34,14 @@ public final class MainScene {
                 repositoryContext.repository(),
                 repositoryContext.persistent(),
                 repositoryContext.warning());
+        MainViewModel mainViewModel = new MainViewModel(
+                viewModel, java.util.List.of(new APTProxyImpl(), new NPMProxyImpl()));
 
         try {
             FXMLLoader loader = new FXMLLoader(fxmlResource);
             loader.setControllerFactory(type -> {
                 if (type == MainController.class) {
-                    return new MainController(viewModel);
+                    return new MainController(mainViewModel);
                 }
                 throw new IllegalStateException("不支持的 Controller / Unsupported controller: " + type);
             });

@@ -5,9 +5,14 @@ import java.net.URL;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.function.Supplier;
+import javafx.application.Platform;
 import javafx.collections.ListChangeListener;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -18,18 +23,29 @@ import javafx.scene.control.ToggleButton;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.stage.Window;
+import javafx.stage.WindowEvent;
+import moe.div.moequickgate.bean.ComponentState;
+import moe.div.moequickgate.bean.ComponentStatus;
 import moe.div.moequickgate.bean.MoeProxy;
+import moe.div.moequickgate.bean.ProxyComponent;
+import moe.div.moequickgate.bean.ProxyProtocol;
+import moe.div.moequickgate.proxy.ProxyOperationException;
+import moe.div.moequickgate.viewmodel.ComponentStatusViewModel;
+import moe.div.moequickgate.viewmodel.MainViewModel;
+import moe.div.moequickgate.viewmodel.OperationException;
 import moe.div.moequickgate.viewmodel.ProxyListViewModel;
 
 /**
- * 处理主界面的展示层事件，并将数据操作委托给 ViewModel。
- * Handles main-view events and delegates data operations to the ViewModel.
+ * 处理主界面的展示层事件，并将操作委托给 ViewModel。
+ * Handles main-view events and delegates operations to ViewModels.
  */
 public final class MainController {
     public static final String PROXY_CARD_RESOURCE = "/fxml/proxy_card.fxml";
     public static final String PROXY_FORM_RESOURCE = "/fxml/proxy_form.fxml";
 
-    private final ProxyListViewModel viewModel;
+    private final MainViewModel mainViewModel;
+    private final ProxyListViewModel proxyViewModel;
     private final Map<Long, ProxyCardController> proxyCards = new LinkedHashMap<>();
 
     @FXML
@@ -48,28 +64,44 @@ public final class MainController {
     private Label aptStatusLabel;
 
     @FXML
+    private Label aptDetailLabel;
+
+    @FXML
     private ToggleButton aptToggle;
 
     @FXML
     private Label npmStatusLabel;
 
     @FXML
+    private Label npmDetailLabel;
+
+    @FXML
     private ToggleButton npmToggle;
 
-    public MainController(ProxyListViewModel viewModel) {
-        this.viewModel = viewModel;
+    public MainController(MainViewModel mainViewModel) {
+        this.mainViewModel = mainViewModel;
+        this.proxyViewModel = mainViewModel.getProxyListViewModel();
     }
 
     @FXML
     private void initialize() {
-        viewModel.getProxies().addListener(
+        proxyViewModel.getProxies().addListener(
                 (ListChangeListener<MoeProxy>) change -> refreshProxyCards());
-        viewModel.selectedProxyProperty().addListener(
-                (observable, previous, current) -> refreshSelection());
+        proxyViewModel.selectedProxyProperty().addListener(
+                (observable, previous, current) -> {
+                    refreshSelection();
+                    refreshComponentControls();
+                });
+        mainViewModel.operationInProgressProperty().addListener(
+                (observable, previous, current) -> refreshComponentControls());
+
+        bindComponent(ProxyComponent.APT, aptToggle, aptStatusLabel, aptDetailLabel);
+        bindComponent(ProxyComponent.NPM, npmToggle, npmStatusLabel, npmDetailLabel);
+        bindWindowLifecycle();
         showPersistenceState();
         refreshProxyCards();
-        updateComponentStatus(aptToggle, aptStatusLabel);
-        updateComponentStatus(npmToggle, npmStatusLabel);
+        refreshComponentControls();
+        mainViewModel.start();
     }
 
     @FXML
@@ -79,24 +111,87 @@ public final class MainController {
 
     @FXML
     private void handleAptToggle() {
-        updateComponentStatus(aptToggle, aptStatusLabel);
+        runOperation("更新 APT 代理", () -> mainViewModel.setComponentEnabled(
+                ProxyComponent.APT, aptToggle.isSelected()));
     }
 
     @FXML
     private void handleNpmToggle() {
-        updateComponentStatus(npmToggle, npmStatusLabel);
+        runOperation("更新 NPM 代理", () -> mainViewModel.setComponentEnabled(
+                ProxyComponent.NPM, npmToggle.isSelected()));
+    }
+
+    private void bindComponent(
+            ProxyComponent component,
+            ToggleButton toggle,
+            Label statusLabel,
+            Label detailLabel) {
+        ComponentStatus status = mainViewModel.getComponent(component).getStatus();
+        status.stateProperty().addListener(
+                (observable, previous, current) -> renderComponent(
+                        status, toggle, statusLabel, detailLabel));
+        status.detailProperty().addListener(
+                (observable, previous, current) -> renderComponent(
+                        status, toggle, statusLabel, detailLabel));
+        renderComponent(status, toggle, statusLabel, detailLabel);
+    }
+
+    private void renderComponent(
+            ComponentStatus status,
+            ToggleButton toggle,
+            Label statusLabel,
+            Label detailLabel) {
+        ComponentState state = status.getState();
+        boolean enabled = state == ComponentState.ENABLED_CURRENT
+                || state == ComponentState.ENABLED_OTHER;
+        toggle.setSelected(enabled);
+        toggle.setText(enabled ? "关闭代理" : "开启代理");
+        statusLabel.setText(switch (state) {
+            case DISABLED -> "已关闭";
+            case ENABLED_CURRENT -> "已开启";
+            case ENABLED_OTHER -> "其他代理正在生效";
+            case UNAVAILABLE -> "不可用";
+            case ERROR -> "检测失败";
+            case BUSY -> "处理中";
+        });
+        detailLabel.setText(status.getDetail());
+        setStyleClass(statusLabel, "component-status-enabled",
+                state == ComponentState.ENABLED_CURRENT);
+        setStyleClass(statusLabel, "component-status-warning",
+                state == ComponentState.ENABLED_OTHER);
+        setStyleClass(statusLabel, "component-status-error",
+                state == ComponentState.ERROR || state == ComponentState.UNAVAILABLE);
+        refreshComponentControls();
+    }
+
+    private void refreshComponentControls() {
+        updateToggleAvailability(ProxyComponent.APT, aptToggle);
+        updateToggleAvailability(ProxyComponent.NPM, npmToggle);
+    }
+
+    private void updateToggleAvailability(ProxyComponent component, ToggleButton toggle) {
+        ComponentStatusViewModel componentViewModel = mainViewModel.getComponent(component);
+        ComponentState state = componentViewModel.getStatus().getState();
+        boolean enabled = componentViewModel.isEnabled();
+        MoeProxy selected = proxyViewModel.getSelectedProxy();
+        boolean supportedSelection = selected != null
+                && selected.getProtocol() != ProxyProtocol.SOCKS5;
+        toggle.setDisable(mainViewModel.isOperationInProgress()
+                || state == ComponentState.BUSY
+                || state == ComponentState.UNAVAILABLE
+                || (!enabled && !supportedSelection));
     }
 
     private void refreshProxyCards() {
         proxyList.getChildren().clear();
         proxyCards.clear();
 
-        if (viewModel.getProxies().isEmpty()) {
+        if (proxyViewModel.getProxies().isEmpty()) {
             Label emptyState = new Label("暂无代理配置，点击“新增代理”开始。");
             emptyState.getStyleClass().add("empty-state");
             proxyList.getChildren().add(emptyState);
         } else {
-            viewModel.getProxies().forEach(this::addProxyCard);
+            proxyViewModel.getProxies().forEach(this::addProxyCard);
         }
         refreshSelection();
     }
@@ -108,8 +203,8 @@ public final class MainController {
             Parent card = loader.load();
             ProxyCardController controller = loader.getController();
             controller.configure(proxy);
-            controller.setSelectionHandler(selected -> runDataOperation(
-                    "选择代理", () -> viewModel.selectProxy(selected.getId())));
+            controller.setSelectionHandler(selected -> runOperation(
+                    "选择代理", () -> mainViewModel.selectProxy(selected.getId())));
             controller.setEditHandler(this::showProxyEditor);
             controller.setDeleteHandler(this::confirmDelete);
             proxyCards.put(proxy.getId(), controller);
@@ -122,7 +217,7 @@ public final class MainController {
     }
 
     private void refreshSelection() {
-        MoeProxy selected = viewModel.getSelectedProxy();
+        MoeProxy selected = proxyViewModel.getSelectedProxy();
         proxyCards.forEach((id, card) -> card.setSelected(selected != null && id == selected.getId()));
         currentProxyLabel.setText(selected == null
                 ? "当前代理：未选择"
@@ -151,10 +246,10 @@ public final class MainController {
 
         MoeProxy input = formController.getValidatedProxy(existingProxy == null ? 0 : existingProxy.getId());
         if (existingProxy == null) {
-            runDataOperation("新增代理", () -> viewModel.addProxy(
+            runOperation("新增代理", () -> mainViewModel.addProxy(
                     input.getName(), input.getHost(), input.getPort(), input.getProtocol()));
         } else {
-            runDataOperation("编辑代理", () -> viewModel.updateProxy(
+            runOperation("编辑代理", () -> mainViewModel.updateProxy(
                     input.getId(),
                     input.getName(),
                     input.getHost(),
@@ -189,49 +284,66 @@ public final class MainController {
         Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
         confirmation.setTitle("删除代理");
         confirmation.setHeaderText("确定删除“" + proxy.getName() + "”吗？");
-        confirmation.setContentText("此操作无法撤销。若删除当前代理，当前选择将被清空。");
+        confirmation.setContentText("此操作无法撤销。删除当前代理前会先关闭已开启组件。");
         if (proxyList.getScene() != null) {
             confirmation.initOwner(proxyList.getScene().getWindow());
         }
         if (confirmation.showAndWait().filter(ButtonType.OK::equals).isPresent()) {
-            runDataOperation("删除代理", () -> viewModel.deleteProxy(proxy.getId()));
+            runOperation("删除代理", () -> mainViewModel.deleteProxy(proxy.getId()));
         }
     }
 
-    private void runDataOperation(String action, Runnable operation) {
+    private void runOperation(
+            String action, Supplier<CompletableFuture<Void>> operation) {
         try {
-            operation.run();
+            operation.get().whenComplete((ignored, failure) -> {
+                if (failure != null) {
+                    Platform.runLater(() -> showError(action + "失败", unwrap(failure)));
+                }
+            });
         } catch (RuntimeException exception) {
             showError(action + "失败", exception);
-            try {
-                viewModel.reload();
-            } catch (RuntimeException reloadFailure) {
-                showError("重新加载最后保存状态失败", reloadFailure);
-            }
         }
     }
 
     private void showPersistenceState() {
-        boolean showWarning = !viewModel.isPersistent();
+        boolean showWarning = !proxyViewModel.isPersistent();
         persistenceWarningBanner.setManaged(showWarning);
         persistenceWarningBanner.setVisible(showWarning);
-        persistenceWarningLabel.setText(viewModel.getPersistenceWarning());
+        persistenceWarningLabel.setText(proxyViewModel.getPersistenceWarning());
     }
 
-    private void updateComponentStatus(ToggleButton toggle, Label statusLabel) {
-        boolean enabled = toggle.isSelected();
-        toggle.setText(enabled ? "开启" : "关闭");
-        statusLabel.setText(enabled ? "已开启" : "已关闭");
-        setStyleClass(toggle, "component-toggle-active", enabled);
-        setStyleClass(statusLabel, "component-status-enabled", enabled);
+    private void bindWindowLifecycle() {
+        proxyList.sceneProperty().addListener((sceneObservable, oldScene, scene) -> {
+            if (scene == null) {
+                return;
+            }
+            scene.windowProperty().addListener((windowObservable, oldWindow, window) -> {
+                if (window != null) {
+                    attachWindow(window);
+                }
+            });
+            if (scene.getWindow() != null) {
+                attachWindow(scene.getWindow());
+            }
+        });
+    }
+
+    private void attachWindow(Window window) {
+        window.focusedProperty().addListener((observable, previous, focused) -> {
+            if (focused) {
+                mainViewModel.refresh();
+            }
+        });
+        window.addEventHandler(WindowEvent.WINDOW_HIDDEN, event -> mainViewModel.close());
     }
 
     private void showError(String action, Throwable throwable) {
         Alert alert = new Alert(Alert.AlertType.ERROR);
         alert.setTitle("MoeQuick Gate");
         alert.setHeaderText(action);
-        alert.setContentText("原因：" + rootMessage(throwable)
-                + "\n建议：检查数据库目录权限和磁盘状态后重试。");
+        alert.setContentText("原因：" + displayMessage(throwable)
+                + "\n建议：" + suggestion(throwable));
         if (proxyList.getScene() != null) {
             alert.initOwner(proxyList.getScene().getWindow());
         }
@@ -248,15 +360,34 @@ public final class MainController {
         return resource;
     }
 
-    private static String rootMessage(Throwable throwable) {
+    private static Throwable unwrap(Throwable throwable) {
         Throwable current = throwable;
-        while (current.getCause() != null) {
+        while (current instanceof CompletionException && current.getCause() != null) {
             current = current.getCause();
         }
+        return current;
+    }
+
+    private static String displayMessage(Throwable throwable) {
+        Throwable current = unwrap(throwable);
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
-    private static void setStyleClass(javafx.scene.Node node, String styleClass, boolean enabled) {
+    private static String suggestion(Throwable throwable) {
+        Throwable current = unwrap(throwable);
+        while (current != null) {
+            if (current instanceof OperationException operationFailure) {
+                return operationFailure.getSuggestion();
+            }
+            if (current instanceof ProxyOperationException proxyFailure) {
+                return proxyFailure.getSuggestion();
+            }
+            current = current.getCause();
+        }
+        return "检查数据库目录、组件配置和文件权限后重试。";
+    }
+
+    private static void setStyleClass(Node node, String styleClass, boolean enabled) {
         if (enabled) {
             if (!node.getStyleClass().contains(styleClass)) {
                 node.getStyleClass().add(styleClass);

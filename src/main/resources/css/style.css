@@ -17,8 +17,13 @@
 .app-subtitle,
 .section-description,
 .proxy-endpoint,
-.component-status {
+.component-status,
+.component-detail {
     -fx-text-fill: #667085;
+}
+
+.component-detail {
+    -fx-font-size: 11px;
 }
 
 .main-content {
@@ -169,7 +174,7 @@
 .component-toggle {
     -fx-background-color: #e5e7eb;
     -fx-text-fill: #475467;
-    -fx-min-width: 68px;
+    -fx-min-width: 84px;
 }
 
 .component-toggle:selected,
@@ -181,6 +186,20 @@
 .component-status-enabled {
     -fx-text-fill: #15803d;
     -fx-font-weight: bold;
+}
+
+.component-status-warning {
+    -fx-text-fill: #b45309;
+    -fx-font-weight: bold;
+}
+
+.component-status-error {
+    -fx-text-fill: #b42318;
+    -fx-font-weight: bold;
+}
+
+.component-toggle:disabled {
+    -fx-opacity: 0.62;
 }
 
 .proxy-form {

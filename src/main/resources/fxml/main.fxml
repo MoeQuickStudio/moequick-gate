@@ -79,7 +79,7 @@
             <VBox spacing="12.0" styleClass="section-panel">
                 <VBox spacing="3.0">
                     <Label text="组件状态" styleClass="section-title" />
-                    <Label text="组件代理控制将在 Phase 4 提供，当前开关仅用于界面演示"
+                    <Label text="实时检测并独立控制 APT 与 NPM 的用户代理配置"
                            styleClass="section-description" />
                 </VBox>
 
@@ -88,15 +88,20 @@
                           spacing="12.0"
                           HBox.hgrow="ALWAYS"
                           styleClass="component-card">
-                        <VBox spacing="4.0">
+                        <VBox spacing="4.0" HBox.hgrow="ALWAYS">
                             <Label text="APT" styleClass="component-name" />
                             <Label fx:id="aptStatusLabel"
-                                   text="已关闭"
+                                   text="正在检测"
                                    styleClass="component-status" />
+                            <Label fx:id="aptDetailLabel"
+                                   maxWidth="340.0"
+                                   text="正在读取 APT 配置…"
+                                   wrapText="true"
+                                   styleClass="component-detail" />
                         </VBox>
-                        <Region HBox.hgrow="ALWAYS" />
                         <ToggleButton fx:id="aptToggle"
-                                      text="关闭"
+                                      disable="true"
+                                      text="开启代理"
                                       onAction="#handleAptToggle"
                                       styleClass="component-toggle" />
                     </HBox>
@@ -105,15 +110,20 @@
                           spacing="12.0"
                           HBox.hgrow="ALWAYS"
                           styleClass="component-card">
-                        <VBox spacing="4.0">
+                        <VBox spacing="4.0" HBox.hgrow="ALWAYS">
                             <Label text="NPM" styleClass="component-name" />
                             <Label fx:id="npmStatusLabel"
-                                   text="已关闭"
+                                   text="正在检测"
                                    styleClass="component-status" />
+                            <Label fx:id="npmDetailLabel"
+                                   maxWidth="340.0"
+                                   text="正在读取 NPM 配置…"
+                                   wrapText="true"
+                                   styleClass="component-detail" />
                         </VBox>
-                        <Region HBox.hgrow="ALWAYS" />
                         <ToggleButton fx:id="npmToggle"
-                                      text="关闭"
+                                      disable="true"
+                                      text="开启代理"
                                       onAction="#handleNpmToggle"
                                       styleClass="component-toggle" />
                     </HBox>
