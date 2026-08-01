@@ -58,7 +58,7 @@ jlink {
             "--linux-package-name", "moequick-gate",
             "--linux-deb-maintainer", "linmo456@hotmmail.com",
             "--linux-app-category", "net",
-            "--linux-package-deps", "policykit-1",
+            "--linux-package-deps", "pkexec",
             "--linux-shortcut",
             "--license-file", layout.projectDirectory.file("LICENSE").asFile.absolutePath,
             "--about-url", "https://github.com/MoeQuickStudio/moequick-gate",

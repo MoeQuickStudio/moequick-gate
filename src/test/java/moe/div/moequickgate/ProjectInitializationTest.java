@@ -31,7 +31,7 @@ class ProjectInitializationTest {
         assertTrue(buildScript.contains("imageName = \"moequick-gate\""));
         assertTrue(buildScript.contains("--linux-shortcut"));
         assertTrue(buildScript.contains("--linux-deb-maintainer"));
-        assertTrue(buildScript.contains("--linux-package-deps\", \"policykit-1"));
+        assertTrue(buildScript.contains("--linux-package-deps\", \"pkexec"));
         assertTrue(buildScript.contains("--license-file"));
         assertTrue(buildScript.contains("src/main/resources/icon/moequick-gate.png"));
         assertTrue(desktopEntry.contains("Name=MoeQuick Gate"));

@@ -13,14 +13,14 @@ MoeQuick Gate（萌快网络助手）是一款面向 Linux 开发者的网络代
 - Ubuntu 24.04 x86_64
 - OpenJDK 21（需要包含 `javac`、`jlink` 和 `jpackage`）
 - `fakeroot`、`binutils` 和 `dpkg-deb`
-- `policykit-1`（deb 会自动安装，APT 修改时按需授权）
+- `pkexec`（deb 会自动安装，APT 修改时按需通过 PolicyKit 授权）
 - `npm`（可选，仅使用 NPM 组件时需要）
 
 Ubuntu 安装命令：
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y openjdk-21-jdk fakeroot binutils policykit-1
+sudo apt-get install -y openjdk-21-jdk fakeroot binutils pkexec
 command -v java javac jlink jpackage fakeroot dpkg-deb pkexec apt-config
 ```
 
@@ -53,6 +53,18 @@ sudo apt install ./moequick-gate_0.1.0_amd64.deb
 
 ```bash
 /opt/moequick-gate/bin/moequick-gate
+```
+
+Ubuntu 上由 `xdg-desktop-menu` 注册的桌面入口通常位于
+`/usr/local/share/applications/moequick-gate-moequick-gate.desktop`，图标直接使用
+`/opt/moequick-gate/lib/moequick-gate.png`。可用以下命令验收安装结果：
+
+```bash
+dpkg-query -W -f='${Status}\n${Package} ${Version} ${Architecture}\n' moequick-gate
+test -x /opt/moequick-gate/bin/moequick-gate
+test -f /usr/local/share/applications/moequick-gate-moequick-gate.desktop
+test -f /opt/moequick-gate/lib/moequick-gate.png
+desktop-file-validate /usr/local/share/applications/moequick-gate-moequick-gate.desktop
 ```
 
 使用相同命令安装更高版本 deb 即可升级。卸载应用：

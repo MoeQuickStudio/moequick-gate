@@ -9,7 +9,7 @@ Phase 6 按开发计划定义为“发布”，“项目初始化”视为标题
 - 应用版本保持 `0.1.0`，Git 标签固定为 `v0.1.0`。
 - 添加 MIT 许可证和 MoeQuickStudio 原创应用图标。
 - deb 使用 `moequick-gate` 包名、`net` Section、MoeQuickStudio Vendor 和 `linmo456@hotmmail.com` Maintainer。
-- 安装包声明 `policykit-1` 依赖，npm 保持可选；包含桌面入口、图标、许可证及完整 Java/JavaFX/SQLite Runtime。
+- 安装包直接声明 `pkexec` 依赖，npm 保持可选；包含桌面入口、图标、许可证及完整 Java/JavaFX/SQLite Runtime。
 - 不添加自定义 PolicyKit 规则，安装脚本不修改 APT/NPM 配置或用户 XDG 数据。
 
 ## 文档与发布资产
@@ -26,6 +26,15 @@ Phase 6 按开发计划定义为“发布”，“项目初始化”视为标题
 - 安装、APT 实际配置、卸载等需要 sudo 的步骤由用户执行；实施过程仅提供安全命令。
 - NPM 功能验收使用临时 `NPM_CONFIG_USERCONFIG`；APT 验收前备份专用配置，完成后恢复。
 - 不执行 `apt update`、npm 网络请求或代理连通性测试。
+- 已在 Ubuntu 24.04 x86_64 完成同版本升级安装，`dpkg-query` 返回 `install ok installed`，`/opt/moequick-gate/bin/moequick-gate` 可正常启动。
+- 桌面入口由 `xdg-desktop-menu` 注册到 `/usr/local/share/applications/moequick-gate-moequick-gate.desktop`；桌面文件直接引用 `/opt/moequick-gate/lib/moequick-gate.png`，不要求在 `/usr/share/icons/hicolor` 复制图标。
+- README 主界面截图已替换为实际安装环境采集的完整窗口截图，内容仅包含内置示例代理，不含私人代理信息。
+
+## Lintian 说明
+
+- 已修正 `policykit-1` 过渡包依赖，改为直接依赖 `pkexec`。
+- jpackage 为提供自包含 Runtime，固定把应用放在 `/opt/moequick-gate` 并携带未拆分调试包的 JDK native library；因此 lintian 会报告 `dir-or-file-in-opt`、`unstripped-binary-or-object` 等非原生 Debian 打包标签。
+- v0.1.0 保持 jpackage 官方目录结构，不为消除这些标签而搬移或修改内置 Runtime；相关限制在阶段报告中披露。
 
 ## 发布
 
